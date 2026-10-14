@@ -1,0 +1,71 @@
+{
+  "rollNumber": "241701032",
+  "studentName": "Mukesh V A",
+  "department": "Computer Science and Design",
+  "interviewDate": "2026-10-13T15:16:00.000Z",
+  "interviewDuration": 583,
+  "interviewStatus": "COMPLETED",
+  "overallScore": 85.5,
+  "readinessScore": 85.5,
+  "readinessLevel": "Placement Ready — Proficient (Strong Potential)",
+  "communicationScore": 7.8,
+  "confidenceScore": 9.0,
+  "professionalismScore": 9.5,
+  "behavioralScore": 8.8,
+  "hiringManagerScore": 8.6,
+  "reportPath": "C:\\Users\\Sandy\\Documents\\PREP_VR_Reports\\PREP_VR_Placement_Report_Mukesh_V_A_20261013_204600.pdf",
+  "reportUrl": "/reports/PREP_VR_Placement_Report_Mukesh_V_A_20261013_204600.pdf",
+  "stages": [
+    {
+      "stageNumber": 1,
+      "stageName": "HR Interviewer",
+      "durationSeconds": 194,
+      "score": 78.0,
+      "questionCount": 4,
+      "answerCount": 4,
+      "transcriptSummary": "Resume background, project claims, and career motivations evaluated."
+    },
+    {
+      "stageNumber": 2,
+      "stageName": "Behavioral Interviewer",
+      "durationSeconds": 194,
+      "score": 88.0,
+      "questionCount": 4,
+      "answerCount": 4,
+      "transcriptSummary": "Team collaboration, adaptability, ownership, and handling pressure evaluated."
+    },
+    {
+      "stageNumber": 3,
+      "stageName": "Hiring Manager",
+      "durationSeconds": 195,
+      "score": 86.0,
+      "questionCount": 4,
+      "answerCount": 4,
+      "transcriptSummary": "System architecture depth, engineering trade-offs, and technical problem-solving assessed."
+    }
+  ],
+  "feedback": {
+    "overallSummary": "Mukesh V A demonstrated strong placement readiness across the 10-minute interview session. Technical depth on resume projects was evident, articulated with genuine personal ownership and sound engineering rationale. By adopting the structured STAR framework for behavioral responses and quantifying project outcomes with explicit metrics, the candidate will be exceptionally well-positioned for competitive campus placement rounds.",
+    "strengths": [
+      "Strong, authentic mastery of stated resume projects (Blood Donation App | Figma, UI/UX Design).",
+      "Clear verbal articulation of engineering choices and component architecture.",
+      "Authentic personal ownership and direct accountability for code modules.",
+      "Confident, professional demeanor with steady conversational pacing."
+    ],
+    "weaknesses": [
+      "Incorporate quantifiable business and performance metrics (e.g., latency reduction, throughput, user count).",
+      "Adopt explicit STAR structure for scenario-based and behavioral prompts.",
+      "Deepen trade-off analysis regarding system scalability, caching strategies, and fault tolerance."
+    ],
+    "recommendations": [
+      "Metric-Infused Elevator Pitches: Prepare 90-second pitches for your top 2 projects emphasizing % gains and numbers.",
+      "STAR Behavioral Matrix: Build a grid of 6 key stories (Leadership, Conflict, Technical Failure, Tight Deadlines).",
+      "Architecture Whiteboard Drills: Practice drawing system diagrams with explicit data flow and failure boundaries.",
+      "Mock Interview Iteration: Complete 2 more PREP VR practice rounds focusing on behavioral questions and closing remarks."
+    ],
+    "observableEyeContact": "Candidate demonstrated strong, consistent visual engagement with the interviewer panel throughout questions and answers.",
+    "observablePostureBodyLanguage": "Posture was stable, upright, and composed with measured head gestures reinforcing explanations.",
+    "observableEngagement": "Consistent active engagement with an average response initiation time of 8.7s, showing thoughtful composure without undue hesitation."
+  },
+  "idempotencyKey": "PREPVR_241701032_20261013_204600"
+}

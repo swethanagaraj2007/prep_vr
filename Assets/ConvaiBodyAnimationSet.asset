@@ -1,0 +1,771 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 23c1e000f3324318944a8522f05e52c3, type: 3}
+  m_Name: ConvaiBodyAnimationSet
+  m_EditorClassIdentifier: Convai.Modules.BodyAnimation::Convai.Modules.BodyAnimation.Data.ConvaiBodyAnimationSet
+  _schemaVersion: 3
+  _displayName: New Character
+  _idles:
+  - _clip: {fileID: -203655887218126122, guid: 7cf7eafec166c2e4a82667c23b987c96, type: 3}
+    _weight: 1
+    _affinities: []
+  _talks:
+  - _clip: {fileID: -203655887218126122, guid: 7cf7eafec166c2e4a82667c23b987c96, type: 3}
+    _weight: 1
+    _coverage: 0
+    _additive: 0
+    _additiveClip: {fileID: 0}
+    _affinities: []
+    _fragments: []
+    _introClip: {fileID: 0}
+    _outroClip: {fileID: 0}
+    _useSafeReleaseWindow: 0
+    _safeReleaseStart: 0
+    _safeReleaseEnd: 0
+    _outroMinPlaybackRate: 0
+    _outroMaxPlaybackRate: 0
+  _listens: []
+  _thinks: []
+  _locomotion:
+    _walk:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _jog:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkStartForward:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkStart90Left:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkStart90Right:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkStart180Left:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkStart180Right:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _jogStartForward:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _jogStart90Left:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _jogStart90Right:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _jogStart180Left:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _jogStart180Right:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkStopLeftPlant:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkStopRightPlant:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkStopLowSpeed:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkStopAbrupt:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _jogStopLeftPlant:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _jogStopAbrupt:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkToJogLeft:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _walkToJogRight:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _jogToWalkLeft:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _jogToWalkRight:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _turn90Left:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _turn90Right:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _turn180Left:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+    _turn180Right:
+      _clip: {fileID: 0}
+      _metadata:
+        _schemaVersion: 3
+        _recommendedHandoffNormalizedTime: 0.9
+        _recoveryNormalizedTime: 0.95
+        _primaryPivotPlantNormalizedTime: 0
+        _primaryPivotFoot: 0
+        _loopClosureQuality: 0
+        _authoredSpeed: 0
+        _authoredDistance: 0
+        _authoredYawDegrees: 0
+        _distanceCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _yawCurve:
+          serializedVersion: 2
+          m_Curve: []
+          m_PreInfinity: 2
+          m_PostInfinity: 2
+          m_RotationOrder: 4
+        _leftFootPlants: []
+        _rightFootPlants: []
+        _analyzed: 0
+        _authoredMotionScale: 0
+  _actions: []
+  _pointing:
+    _entries: []
+    _holdNormalizedTime: 0.5
+  _upperBodyMask: {fileID: 31900000, guid: 7faeeb744079a1442bbaf897dcdfd161, type: 2}

@@ -1,0 +1,113 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum InterviewStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+model Student {
+  id          String      @id @default(cuid())
+  rollNumber  String      @unique
+  name        String
+  department  String
+  year        Int         @default(4)
+  email       String      @unique
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  interviews  Interview[]
+
+  @@index([department])
+  @@index([rollNumber])
+}
+
+model Interview {
+  id                    String          @id @default(cuid())
+  studentId             String
+  student               Student         @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  rollNumber            String
+  interviewDate         DateTime        @default(now())
+  interviewDuration     Int             @default(600) // Duration in seconds
+  interviewStatus       InterviewStatus @default(PENDING)
+  
+  // Numerical Core Scores
+  overallScore          Float?          // 0 - 100
+  readinessScore        Float?          // 0 - 100
+  readinessLevel        String?         // e.g. "Placement Ready — Proficient (Strong Potential)"
+  
+  // Placement Competency Scores (0 - 10)
+  communicationScore    Float?
+  confidenceScore       Float?
+  professionalismScore  Float?
+  behavioralScore       Float?
+  hiringManagerScore    Float?
+  
+  // Report identification and artifacts
+  reportUrl             String?
+  reportPath            String?
+  reportIdentifier      String?
+  idempotencyKey        String?         @unique
+
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  stages                InterviewStage[]
+  feedback              Feedback?
+
+  @@index([studentId])
+  @@index([rollNumber])
+  @@index([interviewStatus])
+  @@index([overallScore])
+  @@index([readinessScore])
+  @@index([interviewDate])
+}
+
+model InterviewStage {
+  id                String    @id @default(cuid())
+  interviewId       String
+  interview         Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  stageNumber       Int       // 1 = HR, 2 = Behavioral, 3 = Hiring Manager
+  stageName         String    // "HR Interviewer", "Behavioral Interviewer", "Hiring Manager"
+  durationSeconds   Int       @default(200)
+  score             Float?    // 0 - 100 or 0 - 10
+  questionCount     Int       @default(0)
+  answerCount       Int       @default(0)
+  transcriptSummary String?   @db.Text
+  createdAt         DateTime  @default(now())
+
+  @@unique([interviewId, stageNumber])
+  @@index([interviewId])
+}
+
+model Feedback {
+  id                            String    @id @default(cuid())
+  interviewId                   String    @unique
+  interview                     Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  overallSummary                String    @db.Text
+  strengths                     String[]
+  weaknesses                    String[]
+  recommendations               String[]
+  observableEyeContact          String?   @db.Text
+  observablePostureBodyLanguage String?   @db.Text
+  observableEngagement          String?   @db.Text
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
+}
+
+model PlacementUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("PLACEMENT_OFFICER")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes:
+  - enabled: 1
+    path: Assets/Scenes/UI/Welcome.unity
+    guid: 5c8b34e9ae9dc7f468046f42a7b1a2d8
+  - enabled: 1
+    path: Assets/Scenes/UI/HomeScreen.unity
+    guid: 18c93d1af5b8b2a4298b1d16fe73482b
+  - enabled: 1
+    path: Assets/Scenes/UI/InterviewType.unity
+    guid: 640491d5896036c45bd3f7d4265b8748
+  - enabled: 1
+    path: Assets/Scenes/UI/ResumeUpload.unity
+    guid: 123f062794ed462b9dbfdd7da5779e02
+  - enabled: 1
+    path: Assets/Scenes/UI/ResumeReview.unity
+    guid: f38dc587db264ee38d8502867f87a373
+  - enabled: 1
+    path: Assets/Scenes/InterviewRoom.unity
+    guid: 99c9720ab356a0642a771bea13969a05
+  - enabled: 1
+    path: Assets/Scenes/UI/InterviewOver.unity
+    guid: 5d120c2731070074281d817dc0628f01
+  m_configObjects:
+    com.unity.dt.app-ui: {fileID: 11400000, guid: 1b1c20d82303e4b5781c3ef50ac1449f, type: 2}
+    com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: c0b45e16c976dac43bc25b87421d1ace, type: 2}
+    com.unity.xr.openxr.settings4: {fileID: 11400000, guid: f1ac350e7d45209488e97c60f68eca0a, type: 2}
+  m_UseUCBPForAssetBundles: 0
