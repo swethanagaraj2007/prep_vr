@@ -14,119 +14,156 @@ using Convai.Domain.DomainEvents.Runtime;
 using Convai.Domain.Models;
 using Convai.Runtime;
 using Convai.Runtime.Room;
+using Convai.Shared.Abstractions;
+using Convai.Shared.Types;
 using PrepVR.Model;
 using PrepVR.Placement;
 
 namespace PrepVR.Interview
 {
     // -----------------------------------------------------------------------
-    // Interview stage machine
+    // Core Interview State Machine (Prompt Required States)
     // -----------------------------------------------------------------------
+    public enum InterviewState
+    {
+        Initializing,
+        Connecting,
+        InterviewStarting,
+        InterviewInProgress,
+        FinalQuestion,
+        ClosingConversation,
+        WaitingForClosingAudio,
+        InterviewCompleted
+    }
+
+    // -----------------------------------------------------------------------
+    // Structured 10-Minute Interview Sections (Adaptive Topic Coverage Guide)
+    // -----------------------------------------------------------------------
+    public enum InterviewSection
+    {
+        Welcome_Introduction = 1,       // 00:00 - 01:00 (0s - 60s)
+        Background_Education_HR = 2,    // 01:00 - 03:00 (60s - 180s)
+        Resume_Technical_Skills = 3,    // 03:00 - 06:00 (180s - 360s)
+        Projects_Problem_Solving = 4,   // 06:00 - 08:00 (360s - 480s)
+        Behavioural_Situational = 5,    // 08:00 - 09:30 (480s - 570s)
+        Final_Question_Closing = 6      // 09:30 - 10:00 (570s - 600s)
+    }
+
+    // Backward-compatibility stage enum
     public enum HRInterviewStage
     {
         NotStarted,
-        HRInterviewer,           // Stage 1 - HR Interviewer speaks
-        BehavioralInterviewer,   // Stage 2 - Behavioral Interviewer speaks
-        HiringManager,           // Stage 3 - Hiring Manager / Team Lead speaks
+        HRInterviewer,           // Single interviewer conducts the session
+        BehavioralInterviewer,
+        HiringManager,
         InterviewCompleted
     }
 
     /// <summary>
-    /// Master orchestrator for the three-interviewer sequential HR panel interview.
-    /// Implements IConversationTargetProvider to guarantee Convai routing aligns
-    /// strictly with the current stage of the interview.
-    ///
-    /// Character mapping (InterviewRoom.unity):
-    ///   Stage 1: HR Interviewer         ("HR" - 1a49ba1e-4a24-4040-bab0-3e1c6623c85a / 96d2f7ff-c33b-4b1f-8c58-b5798da695e2)
-    ///   Stage 2: Behavioral Interviewer ("Technical Interviewer" - 8f23bb25-483d-4890-907b-36de8c20d331 / 67cdd4cc-8124-4301-8117-1355734b7faa)
-    ///   Stage 3: Hiring Manager         ("Behaviour analyst" - f10ec8e4-998d-4f3c-bb4d-260f55427e9e / 7b1aedff-1322-4c5e-8fe5-3d7ed2e8f200)
+    /// Master orchestrator for the Single Interviewer System in PREP VR.
+    /// Operates a complete 10-minute structured AI interview with a single AI interviewer
+    /// covering HR, resume technical skills, project discussions, and behavioural questions.
     /// </summary>
     public class InterviewOrchestrator : MonoBehaviour, IConversationTargetProvider
     {
         public const string TARGET_SCENE_NAME = "InterviewRoom";
         public const string NEXT_SCENE_NAME   = "InterviewOver";
 
-        // ---- Character IDs (Scene Primary & Account Supported) -------------
-        public const string HR_CHARACTER_ID_SCENE     = "28288a88-b324-43b6-920f-c302fbe5dec2";
-        public const string HR_CHARACTER_ID_ACCOUNT   = "d5ac8c30-012b-444e-b3ca-306603364d42";
-        public const string HR_CHARACTER_ID_LEGACY    = "1a49ba1e-4a24-4040-bab0-3e1c6623c85a";
-        public const string BEHAVIORAL_ID_SCENE       = "416528a7-f11c-4b80-8302-0910eea988b0";
-        public const string BEHAVIORAL_ID_ACCOUNT     = "d0aa9d41-6998-4dac-b54b-de383ae052ec";
-        public const string BEHAVIORAL_ID_LEGACY      = "8f23bb25-483d-4890-907b-36de8c20d331";
-        public const string HIRING_MGR_ID_SCENE       = "51afe859-379a-41d8-95f9-c937050cd5fd";
-        public const string HIRING_MGR_ID_ACCOUNT     = "f10ec8e4-998d-4f3c-bb4d-260f55427e9e";
-        public const string HIRING_MGR_ID_LEGACY      = "f10ec8e4-998d-4f3c-bb4d-260f55427e9e";
+        // ---- Single Interviewer Character IDs -----------------------------
+        public const string HR_CHARACTER_ID_SCENE     = "c493d354-3215-4c62-8906-ed3ae499004b";
+        public const string HR_CHARACTER_ID_USER      = "96d2f7ff-c33b-4b1f-8c58-b5798da695e2";
+        public const string HR_CHARACTER_ID_ALT       = "39e56af2-5a98-406f-90e6-ddb52728b542";
+        public const string HR_CHARACTER_ID_ACCOUNT   = "28288a88-b324-43b6-920f-c302fbe5dec2";
+        public const string HR_CHARACTER_ID_LEGACY    = "d5ac8c30-012b-444e-b3ca-306603364d42";
 
-        // Inaccessible character IDs known to cause ROOM_CONNECTION_FAILED
-        public const string INVALID_HIRING_MGR_ID     = "47d5b894-c3e9-4b15-8361-76e8a50a115e";
+        // Aliases
+        public const string HR_CHARACTER_ID = HR_CHARACTER_ID_SCENE;
+        public const string HR_TRIGGER_NAME = "StartInterview";
 
-        // Backward compatibility constants
-        public const string HR_CHARACTER_ID         = HR_CHARACTER_ID_SCENE;
-        public const string BEHAVIORAL_CHARACTER_ID = BEHAVIORAL_ID_SCENE;
-        public const string HIRING_MGR_CHARACTER_ID = HIRING_MGR_ID_SCENE;
-
-        // ---- Narrative Design Trigger Names (configured on Convai backend) --
-        public const string HR_TRIGGER_NAME         = "StartInterview";
-        public const string BEHAVIORAL_TRIGGER_NAME = "StartBehavioralStage";
-        public const string HIRING_MGR_TRIGGER_NAME = "StartHiringManagerStage";
-
-        private const int QUESTIONS_PER_STAGE = 4;
-
-        // ---- Discovered characters (auto-populated at runtime) ------------
-        [Header("Discovered Characters (auto-populated)")]
-        [SerializeField] private ConvaiCharacter hrInterviewer;
-        [SerializeField] private ConvaiCharacter behavioralInterviewer;
-        [SerializeField] private ConvaiCharacter hiringManager;
-        [SerializeField] private ConvaiPlayer convaiPlayer;
-
-        // ---- Stage state --------------------------------------------------
-        [Header("State Tracking")]
-        [SerializeField] private HRInterviewStage currentStage = HRInterviewStage.NotStarted;
-        [SerializeField] private bool interviewActive = false;
-
-        private int hrQuestionCount        = 0;
-        private int behaviorQuestionCount  = 0;
-        private int hiringMgrQuestionCount = 0;
-
-        private int hrCandidateAnswerCount        = 0;
-        private int behaviorCandidateAnswerCount  = 0;
-        private int hiringMgrCandidateAnswerCount = 0;
-
-        public const int MIN_ANSWERS_PER_STAGE = 3;
-        public const float STAGE_1_END_SECONDS     = 200f; // Stage 1 HR: 200s (0:00 - 3:20)
-        public const float STAGE_2_END_SECONDS     = 400f; // Stage 2 Behavioral: 400s cumulative (3:20 - 6:40)
-        public const float TOTAL_INTERVIEW_SECONDS = 600f; // Stage 3 Hiring Manager: 600s cumulative (6:40 - 10:00)
+        // ---- 10-Minute Schedule Boundaries (in seconds) -------------------
+        public const float TOTAL_INTERVIEW_SECONDS   = 600f; // 10 minutes (600s) total target duration
+        public const float SECTION_1_END_SECONDS     = 60f;  // 1:00 Welcome and introduction
+        public const float SECTION_2_END_SECONDS     = 180f; // 3:00 Background, education and HR questions
+        public const float SECTION_3_END_SECONDS     = 360f; // 6:00 Resume-based skills and technical questions
+        public const float SECTION_4_END_SECONDS     = 480f; // 8:00 Project discussion and problem-solving
+        public const float SECTION_5_END_SECONDS     = 570f; // 9:30 Behavioural and situational questions (STAR)
+        public const float SECTION_6_END_SECONDS     = 600f; // 10:00 Final question and professional closing
 
         // Legacy compatibility aliases
+        public const float STAGE_1_END_SECONDS = SECTION_2_END_SECONDS;
+        public const float STAGE_2_END_SECONDS = SECTION_3_END_SECONDS;
+        public const float STAGE_3_END_SECONDS = SECTION_5_END_SECONDS;
         public const float STAGE_1_TARGET_SECONDS = STAGE_1_END_SECONDS;
         public const float STAGE_2_TARGET_SECONDS = STAGE_2_END_SECONDS;
-        public const float STAGE_3_TARGET_SECONDS = TOTAL_INTERVIEW_SECONDS;
+        public const float STAGE_3_TARGET_SECONDS = STAGE_3_END_SECONDS;
+
+        // ---- Discovered Single Interviewer --------------------------------
+        [Header("Single AI Interviewer")]
+        [SerializeField] private ConvaiCharacter interviewer;
+        [SerializeField] private ConvaiPlayer convaiPlayer;
+
+        // Backward compatibility property
+        public ConvaiCharacter hrInterviewer => interviewer;
+
+        // ---- Interview State Machine --------------------------------------
+        [Header("Interview State Machine")]
+        [SerializeField] private InterviewState currentState = InterviewState.Initializing;
+        [SerializeField] private InterviewSection currentSection = InterviewSection.Welcome_Introduction;
+        [SerializeField] private bool interviewActive = false;
+
+        public InterviewState CurrentState => currentState;
+        public InterviewSection CurrentSection => currentSection;
+        public bool InterviewActive => interviewActive;
+
+        // Backward compatibility stage property
+        public HRInterviewStage CurrentStage
+        {
+            get
+            {
+                if (currentState == InterviewState.InterviewCompleted) return HRInterviewStage.InterviewCompleted;
+                if (!interviewActive) return HRInterviewStage.NotStarted;
+                return HRInterviewStage.HRInterviewer;
+            }
+        }
+
+        // Question and Answer Tracking
+        private int totalQuestionsAsked = 0;
+        private int totalCandidateAnswers = 0;
+        private int currentSectionQuestionCount = 0;
+        private int currentSectionAnswerCount = 0;
+
+        public int TotalQuestionsAsked => totalQuestionsAsked;
+        public int TotalCandidateAnswers => totalCandidateAnswers;
+        public int HrCandidateAnswerCount => totalCandidateAnswers;
+        public int BehaviorCandidateAnswerCount => currentSectionAnswerCount;
+        public int HiringMgrCandidateAnswerCount => currentSectionAnswerCount;
+
+        [Header("Speech Naturalness & Pacing")]
+        [SerializeField] [Range(0.75f, 1.0f)] private float speakingPacingRate = 0.88f;
+        public float SpeakingPacingRate => speakingPacingRate;
 
         private float interviewStartTime = 0f;
         public float AuthoritativeElapsedTime => InterviewTimerManager.Instance != null
             ? InterviewTimerManager.Instance.ElapsedTime
             : (interviewStartTime > 0f ? (Time.time - interviewStartTime) : 0f);
 
-        private float stageStartTime = 0f;
         public float StageElapsedTime => AuthoritativeElapsedTime;
 
-        private readonly List<string> hrTranscriptLines       = new();
-        private readonly List<string> behaviorTranscriptLines = new();
-
+        private readonly List<string> interviewTranscriptLines = new();
         private string lastRecordedQuestion = "";
-        private bool   isTransitioningStage = false;
-        private bool   isInitializing       = false;
+        private bool isTransitioningStage = false;
+        private bool isInitializing = false;
+        private bool isResumeFallbackActive = false;
 
         // ---- Turn-Taking State Machine ------------------------------------
         public enum TurnState
         {
             NotStarted,
-            InterviewerSpeaking,  // Active interviewer is speaking question, greeting, or prompt
+            InterviewerSpeaking,  // Single interviewer speaking question or greeting
             WaitingForCandidate,  // Interviewer finished; candidate mic is active; waiting for speech
             CandidateSpeaking,    // Interviewer finished; candidate mic is active; candidate is speaking
             ProcessingAnswer,     // Candidate finished speaking; debounce expired; answer is being processed
-            HandoffSpeaking,      // Interviewer speaking handoff phrase to transition to next stage
-            ClosingSpeaking,      // Hiring Manager speaking closing statement
+            ClosingSpeaking,      // Interviewer speaking closing statement
             Concluding            // Closing statement finished; finalizing session and transitioning scene
         }
 
@@ -134,7 +171,6 @@ namespace PrepVR.Interview
         [SerializeField] private TurnState currentTurnState = TurnState.NotStarted;
         public TurnState CurrentTurnState => currentTurnState;
 
-        private bool isTimeLimitReached = false;
         private bool isHandoffSpeechCompleted = false;
         public bool IsHandoffSpeechCompleted => isHandoffSpeechCompleted;
 
@@ -145,55 +181,63 @@ namespace PrepVR.Interview
             candidateAnswerBuffer.Length > 0 ||
             (InterviewAutomatedTester.Instance != null && InterviewAutomatedTester.Instance.IsCandidateSpeakingOrScheduled);
 
-        // ---- Question Completion & Microphone Gating State ----------------
+        // Turn tracking & microphone gating
         public event Action<string, string> OnInterviewerQuestionFinished;
-        private bool isInterviewerSpeakingTurn = false;
-        private ConvaiCharacter activeTurnCharacter = null;
-        private readonly StringBuilder currentTurnQuestionBuilder = new();
-        private bool characterTurnCompletedReceived = false;
-        private Coroutine turnCompletionCoroutine = null;
+        public event Action<InterviewState> OnInterviewStateChanged;
+        public event Action<InterviewSection> OnInterviewSectionChanged;
 
-        // ---- Candidate Answer Buffering & Debouncing ----------------------
+        private int currentTurnId = 0;
+        private bool isInterviewerSpeakingTurn = false;
+        private readonly StringBuilder currentTurnQuestionBuilder = new();
+        private bool characterAudioCompletedReceived = false;
+        private bool characterTurnCompletedReceived = false;
+        private float lastInterviewerSpeechStartTime = 0f;
+        private float lastInterviewerSpeechStopTime = 0f;
+        private Coroutine turnCompletionCoroutine = null;
+        private Coroutine turnGraceTimeoutCoroutine = null;
+        private readonly object turnLock = new object();
+
+        // Candidate Answer Buffering & Debouncing
         private readonly StringBuilder candidateAnswerBuffer = new();
         private Coroutine candidateAnswerDebounceCoroutine = null;
 
-        public HRInterviewStage CurrentStage => currentStage;
         public static InterviewOrchestrator Instance { get; private set; }
         public bool IsTransitioningStage => isTransitioningStage;
         public bool IsInterviewerSpeakingTurn => isInterviewerSpeakingTurn;
 
-        public int HrCandidateAnswerCount => hrCandidateAnswerCount;
-        public int BehaviorCandidateAnswerCount => behaviorCandidateAnswerCount;
-        public int HiringMgrCandidateAnswerCount => hiringMgrCandidateAnswerCount;
+        public ConvaiCharacter GetActiveInterviewer() => interviewer;
 
-        public ConvaiCharacter GetActiveInterviewer()
-        {
-            switch (currentStage)
-            {
-                case HRInterviewStage.HRInterviewer: return hrInterviewer;
-                case HRInterviewStage.BehavioralInterviewer: return behavioralInterviewer;
-                case HRInterviewStage.HiringManager: return hiringManager;
-                default: return hrInterviewer;
-            }
-        }
+        private bool isCandidateMicMuted = false;
 
-        public void SetCandidateMicrophoneMuted(bool mute)
+        public void SetCandidateMicrophoneMuted(bool mute, string reason = "unspecified")
         {
             try
             {
-                // In Hands-Free mode, ensure hardware microphone is NOT muted so WebRTC PCM buffers
-                // are never cleared and candidate speech is captured with zero activation latency.
-                if (ConvaiManager.ActiveManager?.Audio != null)
+                isCandidateMicMuted = mute;
+                ConvaiManager manager = ConvaiManager.ActiveManager;
+                if (manager?.Audio != null)
                 {
-                    ConvaiManager.ActiveManager.Audio.SetMicMuted(false);
-                }
-                if (!mute)
-                {
-                    Debug.Log("[MIC] Candidate microphone ACTIVE");
+                    if (!mute)
+                    {
+                        // Ensure microphone listening pipeline is started and capturing audio
+                        manager.Audio.StartListeningAsync();
+                    }
+                    manager.Audio.SetMicMuted(mute);
+                    bool actualMuted = manager.Audio.IsMicMuted;
+                    Debug.Log($"[MIC_GATE] Convai Audio.SetMicMuted({mute}) executed (Reason: {reason}). Actual IsMicMuted={actualMuted} at {AuthoritativeElapsedTime:F2}s");
                 }
                 else
                 {
-                    Debug.Log("[MIC] Candidate microphone GATED (interviewer speaking)");
+                    Debug.LogWarning($"[MIC_GATE] SetCandidateMicrophoneMuted({mute}) called but ConvaiManager.ActiveManager?.Audio is null. Reason: {reason}");
+                }
+
+                if (!mute)
+                {
+                    Debug.Log($"[MIC] Candidate microphone ACTIVE (Candidate may speak) [Reason: {reason}]");
+                }
+                else
+                {
+                    Debug.Log($"[MIC] Candidate microphone GATED (interviewer speaking / processing) [Reason: {reason}]");
                 }
             }
             catch (Exception ex)
@@ -204,36 +248,65 @@ namespace PrepVR.Interview
 
         public bool IsActiveStageCharacter(string charId, string speaker)
         {
-            switch (currentStage)
-            {
-                case HRInterviewStage.HRInterviewer:
-                    return MatchesCharacter(charId, speaker, hrInterviewer);
-                case HRInterviewStage.BehavioralInterviewer:
-                    return MatchesCharacter(charId, speaker, behavioralInterviewer);
-                case HRInterviewStage.HiringManager:
-                    return MatchesCharacter(charId, speaker, hiringManager);
-                default:
-                    return false;
-            }
+            return MatchesCharacter(charId, speaker, interviewer);
         }
 
-        public bool IsCandidateSpeakingOrPending()
-        {
-            return IsCandidateSpeakingOrTurnActive;
-        }
+        public bool IsCandidateSpeakingOrPending() => IsCandidateSpeakingOrTurnActive;
 
         public bool IsAnyInterviewerSpeaking()
         {
             if (isInterviewerSpeakingTurn) return true;
-            if (hrInterviewer != null && hrInterviewer.IsSpeaking) return true;
-            if (behavioralInterviewer != null && behavioralInterviewer.IsSpeaking) return true;
-            if (hiringManager != null && hiringManager.IsSpeaking) return true;
+            if (interviewer != null && interviewer.IsSpeaking) return true;
             return false;
         }
 
         public bool IsExchangeActive()
         {
             return IsCandidateSpeakingOrTurnActive || isInterviewerSpeakingTurn || IsAnyInterviewerSpeaking();
+        }
+
+        private void SetState(InterviewState newState)
+        {
+            if (currentState == newState) return;
+            currentState = newState;
+            Debug.Log($"[InterviewState] State changed to: {newState} at {AuthoritativeElapsedTime:F2}s");
+            OnInterviewStateChanged?.Invoke(newState);
+        }
+
+        private void SetSection(InterviewSection newSection)
+        {
+            if (currentSection == newSection) return;
+            currentSection = newSection;
+            currentSectionQuestionCount = 0;
+            currentSectionAnswerCount = 0;
+            Debug.Log($"[InterviewSection] Section changed to: {newSection} at {AuthoritativeElapsedTime:F2}s");
+            OnInterviewSectionChanged?.Invoke(newSection);
+
+            if (InterviewTimerManager.Instance != null)
+            {
+                InterviewTimerManager.Instance.SetCustomStage(GetSectionDisplayName(newSection));
+            }
+        }
+
+        private string GetSectionDisplayName(InterviewSection section)
+        {
+            switch (section)
+            {
+                case InterviewSection.Welcome_Introduction:
+                    return "Welcome & Introduction (0:00 - 1:00)";
+                case InterviewSection.Background_Education_HR:
+                    return "Background & HR Questions (1:00 - 3:00)";
+                case InterviewSection.Resume_Technical_Skills:
+                    return "Technical Skills & Architecture (3:00 - 6:00)";
+                case InterviewSection.Projects_Problem_Solving:
+                    return "Projects & Problem Solving (6:00 - 8:00)";
+                case InterviewSection.Behavioural_Situational:
+                    return "Behavioural & Situational (8:00 - 9:30)";
+                case InterviewSection.Final_Question_Closing:
+                    return "Final Question & Wrap-Up (9:30 - 10:00)";
+                default:
+                    return "Interview In Progress";
+            }
         }
 
         private void Awake()
@@ -254,7 +327,7 @@ namespace PrepVR.Interview
         {
             if (SceneManager.GetActiveScene().name == TARGET_SCENE_NAME && !interviewActive && !isInitializing)
             {
-                Debug.Log("[ConvaiDebug] Start() — InterviewRoom already active. Initializing.");
+                Debug.Log("[InterviewOrchestrator] Start() — InterviewRoom already active. Initializing single interviewer session.");
                 StartCoroutine(InitializeInterviewCoroutine());
             }
         }
@@ -265,40 +338,69 @@ namespace PrepVR.Interview
 
             float elapsed = AuthoritativeElapsedTime;
 
-            // Track soft time limit reaching total interview duration
-            if (elapsed >= TOTAL_INTERVIEW_SECONDS)
+            // Watchdog 1: If waiting for candidate response and no interviewer is speaking, ensure mic is active
+            if ((currentTurnState == TurnState.WaitingForCandidate || currentTurnState == TurnState.CandidateSpeaking) &&
+                !isInterviewerSpeakingTurn && !IsAnyInterviewerSpeaking() && isCandidateMicMuted)
             {
-                isTimeLimitReached = true;
+                SetCandidateMicrophoneMuted(false, "Update watchdog - waiting for candidate with muted mic");
             }
 
-            // CRITICAL: NEVER switch interviewers or cut off an exchange while:
-            // 1. Candidate is speaking or about to speak (CandidateSpeaking)
-            // 2. Candidate answer is debouncing / processing (ProcessingAnswer)
-            // 3. Interviewer is speaking (isInterviewerSpeakingTurn / IsAnyInterviewerSpeaking)
-            // 4. A handoff or closing statement is playing
+            // Watchdog 2: If interviewer speaking turn had audio stopped for > 1.0s and turn didn't complete, force complete
+            if (isInterviewerSpeakingTurn && characterAudioCompletedReceived && lastInterviewerSpeechStopTime > 0f &&
+                (Time.time - lastInterviewerSpeechStopTime > 1.0f))
+            {
+                CompleteInterviewerSpeakingTurn(interviewer, "Interviewer", "Update watchdog - audio stopped for > 1.0s");
+            }
+
+            // Do not alter states or schedule while an exchange or closing audio is playing
             if (isInterviewerSpeakingTurn || IsAnyInterviewerSpeaking() || IsCandidateSpeakingOrTurnActive ||
-                currentTurnState == TurnState.HandoffSpeaking ||
-                currentTurnState == TurnState.ClosingSpeaking)
+                currentTurnState == TurnState.ClosingSpeaking || currentTurnState == TurnState.Concluding ||
+                currentState == InterviewState.WaitingForClosingAudio || currentState == InterviewState.InterviewCompleted)
             {
                 return;
             }
 
-            // Fallback idle transitions ONLY if the candidate has been completely silent / idle
-            // for > 35 seconds past the stage boundary without speaking.
-            if (currentStage == HRInterviewStage.HRInterviewer && elapsed >= (STAGE_1_END_SECONDS + 35f))
+            // Adaptive timeline progression guide:
+            // When candidate is not speaking and no question is playing, update current section based on elapsed time:
+            if (elapsed < SECTION_1_END_SECONDS)
             {
-                Debug.Log($"[INTERVIEW] HR Stage idle boundary exceeded ({elapsed:F1}s). Transitioning HR -> Stage 2 (Technical Interviewer).");
-                StartCoroutine(BeginStage_BehavioralInterviewer());
+                SetSection(InterviewSection.Welcome_Introduction);
             }
-            else if (currentStage == HRInterviewStage.BehavioralInterviewer && elapsed >= (STAGE_2_END_SECONDS + 35f))
+            else if (elapsed < SECTION_2_END_SECONDS)
             {
-                Debug.Log($"[INTERVIEW] Technical Stage idle boundary exceeded ({elapsed:F1}s). Transitioning Technical -> Stage 3 (Hiring Manager).");
-                StartCoroutine(BeginStage_HiringManager());
+                SetSection(InterviewSection.Background_Education_HR);
             }
-            else if (currentStage == HRInterviewStage.HiringManager && elapsed >= (TOTAL_INTERVIEW_SECONDS + 35f))
+            else if (elapsed < SECTION_3_END_SECONDS)
             {
-                Debug.Log($"[Interview] Hiring Manager Stage idle boundary exceeded ({elapsed:F1}s). Gracefully concluding interview.");
-                HandleTimerExpiredSoftBoundary();
+                SetSection(InterviewSection.Resume_Technical_Skills);
+            }
+            else if (elapsed < SECTION_4_END_SECONDS)
+            {
+                SetSection(InterviewSection.Projects_Problem_Solving);
+            }
+            else if (elapsed < SECTION_5_END_SECONDS)
+            {
+                SetSection(InterviewSection.Behavioural_Situational);
+            }
+            else if (elapsed < TOTAL_INTERVIEW_SECONDS)
+            {
+                SetSection(InterviewSection.Final_Question_Closing);
+                if (currentState == InterviewState.InterviewInProgress)
+                {
+                    Debug.Log($"[INTERVIEW] 9:30 boundary reached ({elapsed:F1}s). Initiating Final Question phase.");
+                    StartCoroutine(InitiateFinalQuestionPhase());
+                }
+            }
+            else
+            {
+                // Authoritative 10-Minute target reached while completely idle: trigger closing if not already concluding
+                if (currentState != InterviewState.ClosingConversation &&
+                    currentState != InterviewState.WaitingForClosingAudio &&
+                    currentState != InterviewState.InterviewCompleted)
+                {
+                    Debug.Log($"[INTERVIEW] Authoritative 600-second (10-minute) interview duration reached while idle ({elapsed:F1}s). Triggering closing conversation.");
+                    StartCoroutine(InitiateClosingConversation());
+                }
             }
         }
 
@@ -306,7 +408,7 @@ namespace PrepVR.Interview
         {
             if (scene.name == TARGET_SCENE_NAME)
             {
-                Debug.Log("[ConvaiDebug] InterviewRoom loaded via sceneLoaded.");
+                Debug.Log("[InterviewOrchestrator] InterviewRoom loaded via sceneLoaded.");
                 if (!interviewActive && !isInitializing)
                 {
                     StartCoroutine(InitializeInterviewCoroutine());
@@ -320,36 +422,12 @@ namespace PrepVR.Interview
         }
 
         // ====================================================================
-        // IConversationTargetProvider Implementation
+        // IConversationTargetProvider Implementation (Single Interviewer)
         // ====================================================================
         public ConvaiCharacter ResolveTarget(IReadOnlyList<ConvaiCharacter> candidates, ConvaiCharacter current)
         {
-            ConvaiCharacter target = null;
-            switch (currentStage)
-            {
-                case HRInterviewStage.HRInterviewer:
-                    target = hrInterviewer;
-                    break;
-                case HRInterviewStage.BehavioralInterviewer:
-                    target = behavioralInterviewer;
-                    break;
-                case HRInterviewStage.HiringManager:
-                    target = hiringManager;
-                    break;
-                default:
-                    target = hrInterviewer;
-                    break;
-            }
-
-            if (target != null && candidates != null)
-            {
-                for (int i = 0; i < candidates.Count; i++)
-                {
-                    if (candidates[i] == target) return target;
-                }
-            }
-
-            return target ?? current ?? hrInterviewer;
+            // In the Single Interviewer System, the active target is ALWAYS the single interviewer
+            return interviewer ?? current;
         }
 
         // ====================================================================
@@ -358,47 +436,23 @@ namespace PrepVR.Interview
         private IEnumerator InitializeInterviewCoroutine()
         {
             isInitializing = true;
-            Debug.Log("[Interview] B. InterviewRoom initialized");
-            string selectedType = PREPVRSessionManager.Instance?.SelectedInterviewType ?? "Final HR Interview";
-            Debug.Log($"[InterviewFlow] Selected interview type = {selectedType}");
-            Debug.Log("[ConvaiDebug] InterviewRoom loaded");
+            SetState(InterviewState.Initializing);
+            Debug.Log("[Interview] Initializing Single Interviewer System for InterviewRoom");
 
-            hrQuestionCount        = 0;
-            behaviorQuestionCount  = 0;
-            hiringMgrQuestionCount = 0;
-            hrCandidateAnswerCount        = 0;
-            behaviorCandidateAnswerCount  = 0;
-            hiringMgrCandidateAnswerCount = 0;
-            hrTranscriptLines.Clear();
-            behaviorTranscriptLines.Clear();
-            lastRecordedQuestion   = "";
-            isTransitioningStage   = false;
-            currentStage           = HRInterviewStage.NotStarted;
-            stageStartTime         = 0f;
+            totalQuestionsAsked = 0;
+            totalCandidateAnswers = 0;
+            currentSectionQuestionCount = 0;
+            currentSectionAnswerCount = 0;
+            interviewTranscriptLines.Clear();
+            lastRecordedQuestion = "";
+            isTransitioningStage = false;
+            currentTurnState = TurnState.NotStarted;
+            SetSection(InterviewSection.Welcome_Introduction);
 
             // Ensure CandidateProfile has rich resume data
             EnsureCandidateProfile();
 
-            // Sanitize any characters carrying invalid/inaccessible IDs before room connection
-            ConvaiCharacter[] sceneChars = FindObjectsByType<ConvaiCharacter>(FindObjectsSortMode.None);
-            if (sceneChars != null)
-            {
-                foreach (var sc in sceneChars)
-                {
-                    if (sc != null && sc.CharacterId == INVALID_HIRING_MGR_ID)
-                    {
-                        Debug.LogWarning($"[InterviewOrchestrator] Sanitizing inaccessible character ID {INVALID_HIRING_MGR_ID} on {sc.gameObject.name} to {HIRING_MGR_ID_SCENE}");
-                        try { sc.Configure(HIRING_MGR_ID_SCENE); }
-                        catch
-                        {
-                            var field = typeof(ConvaiCharacter).GetField("_characterId", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                            if (field != null) field.SetValue(sc, HIRING_MGR_ID_SCENE);
-                        }
-                    }
-                }
-            }
-
-            // 1. Discover all Convai Characters in the scene
+            // 1. Discover the single Convai Character in the scene
             float timeout = 4f;
             ConvaiCharacter[] all = null;
             while (timeout > 0f)
@@ -410,77 +464,56 @@ namespace PrepVR.Interview
             }
 
             Debug.Log($"[ConvaiDebug] Discovered {all?.Length ?? 0} ConvaiCharacter(s) in scene.");
+            interviewer = null;
 
-            hrInterviewer         = null;
-            behavioralInterviewer = null;
-            hiringManager         = null;
-
-            if (all != null)
+            if (all != null && all.Length > 0)
             {
-                // Pass 1: Match by exact Character ID (Scene ID, Account ID, or Legacy ID)
+                // Match by ID or take the primary interviewer in scene
                 foreach (var ch in all)
                 {
                     string id = ch.CharacterId ?? "";
-                    if (id == HR_CHARACTER_ID_SCENE || id == HR_CHARACTER_ID_ACCOUNT || id == HR_CHARACTER_ID_LEGACY)
+                    if (id == HR_CHARACTER_ID_SCENE || id == HR_CHARACTER_ID_USER ||
+                        id == HR_CHARACTER_ID_ACCOUNT || id == HR_CHARACTER_ID_ALT || id == HR_CHARACTER_ID_LEGACY)
                     {
-                        hrInterviewer = ch;
-                    }
-                    else if (id == BEHAVIORAL_ID_SCENE || id == BEHAVIORAL_ID_ACCOUNT || id == BEHAVIORAL_ID_LEGACY)
-                    {
-                        behavioralInterviewer = ch;
-                    }
-                    else if (id == HIRING_MGR_ID_SCENE || id == HIRING_MGR_ID_ACCOUNT || id == HIRING_MGR_ID_LEGACY)
-                    {
-                        hiringManager = ch;
+                        interviewer = ch;
+                        break;
                     }
                 }
 
-                // Pass 2: Match by GameObject / Character name if unassigned
-                foreach (var ch in all)
+                if (interviewer == null)
                 {
-                    string name = ((ch.CharacterName ?? "") + " " + ch.gameObject.name).ToLowerInvariant();
-                    if (hrInterviewer == null && name.Contains("hr"))
+                    // Match by name or take first active character
+                    foreach (var ch in all)
                     {
-                        hrInterviewer = ch;
-                    }
-                    else if (behavioralInterviewer == null && (name.Contains("technical") || name.Contains("behavioral")))
-                    {
-                        behavioralInterviewer = ch;
-                    }
-                    else if (hiringManager == null && (name.Contains("3rd") || name.Contains("observer") || name.Contains("invterviewr") || name.Contains("behaviour") || name.Contains("analyst") || name.Contains("hiring") || name.Contains("lead") || name.Contains("manager")))
-                    {
-                        hiringManager = ch;
+                        string name = ((ch.CharacterName ?? "") + " " + ch.gameObject.name).ToLowerInvariant();
+                        if (name.Contains("hr") || name.Contains("interviewer"))
+                        {
+                            interviewer = ch;
+                            break;
+                        }
                     }
                 }
 
-                // Pass 3: Positional fallback if any character is still unassigned
-                var remaining = new List<ConvaiCharacter>(all);
-                if (hrInterviewer != null) remaining.Remove(hrInterviewer);
-                if (behavioralInterviewer != null) remaining.Remove(behavioralInterviewer);
-                if (hiringManager != null) remaining.Remove(hiringManager);
-
-                if (hrInterviewer == null && remaining.Count > 0)
+                if (interviewer == null)
                 {
-                    hrInterviewer = remaining[0];
-                    remaining.RemoveAt(0);
-                }
-                if (behavioralInterviewer == null && remaining.Count > 0)
-                {
-                    behavioralInterviewer = remaining[0];
-                    remaining.RemoveAt(0);
-                }
-                if (hiringManager == null && remaining.Count > 0)
-                {
-                    hiringManager = remaining[0];
-                    remaining.RemoveAt(0);
+                    interviewer = all[0];
                 }
             }
 
-            Debug.Log($"[ConvaiDebug] HR character resolved: {hrInterviewer != null} ({hrInterviewer?.gameObject.name} | {hrInterviewer?.CharacterName} | {hrInterviewer?.CharacterId})");
-            Debug.Log($"[ConvaiDebug] Behavioral character resolved: {behavioralInterviewer != null} ({behavioralInterviewer?.gameObject.name} | {behavioralInterviewer?.CharacterName} | {behavioralInterviewer?.CharacterId})");
-            Debug.Log($"[ConvaiDebug] Hiring Manager character resolved: {hiringManager != null} ({hiringManager?.gameObject.name} | {hiringManager?.CharacterName} | {hiringManager?.CharacterId})");
+            Debug.Log($"[ConvaiDebug] Single Interviewer resolved: {interviewer != null} ({interviewer?.gameObject.name} | {interviewer?.CharacterName} | {interviewer?.CharacterId})");
+
+            if (interviewer == null)
+            {
+                Debug.LogError("[InterviewOrchestrator] No ConvaiCharacter found in InterviewRoom! Halting initialization.");
+                isInitializing = false;
+                yield break;
+            }
+
+            // Attach & calibrate specialized mouth repair controller
+            EnsureAvatarMouthController(interviewer, "Interviewer");
 
             // 2. Locate ConvaiManager
+            SetState(InterviewState.Connecting);
             float mgrWait = 5f;
             while (ConvaiManager.ActiveManager == null && mgrWait > 0f)
             {
@@ -493,7 +526,6 @@ namespace PrepVR.Interview
 
             if (managerFound)
             {
-                // CRITICAL: Configure Manual targeting mode so gaze does NOT switch targets or interrupt speech
                 if (ConvaiManager.ActiveManager.ConversationTargeting != null)
                 {
                     ConvaiManager.ActiveManager.ConversationTargeting.Mode = ConversationTargetingMode.Manual;
@@ -505,10 +537,8 @@ namespace PrepVR.Interview
             convaiPlayer = FindAnyObjectByType<ConvaiPlayer>();
             Debug.Log($"[ConvaiDebug] ConvaiPlayer found: {convaiPlayer != null}");
 
-            // 3. Attach character event listeners for ConvaiDebug logs
-            WireCharacterDebugEvents(hrInterviewer, "HR");
-            WireCharacterDebugEvents(behavioralInterviewer, "Behavioral");
-            WireCharacterDebugEvents(hiringManager, "Hiring Manager");
+            // 3. Attach character event listeners
+            WireCharacterDebugEvents(interviewer, "Interviewer");
 
             // 4. Setup session components and event subscriptions
             SetupTimer();
@@ -516,17 +546,87 @@ namespace PrepVR.Interview
             SetupVisualEvaluator();
             SetupRuntimeHUD();
             SubscribeConvaiEvents();
+            EnsureMicrophoneConfigured();
 
+            // 5. Await Convai room connection
+            yield return WaitForRoomConnection(25f);
+            ConvaiManager manager = ConvaiManager.ActiveManager;
+            if (manager == null || !manager.IsConnected)
+            {
+                Debug.LogError("[ConvaiDebug] Convai room failed to connect within timeout. Halting interview startup.");
+                isInitializing = false;
+                yield break;
+            }
+
+            Debug.Log("[Interview] C. Convai Manager ready and room connected.");
+
+            // 6. Await interviewer authoritative readiness & session membership
+            yield return WaitForAuthoritativeReadiness(interviewer, "Interviewer", 35f);
+            if (!IsCharacterAuthoritativelyReady(interviewer))
+            {
+                Debug.LogError("[ConvaiDebug] Single interviewer failed authoritative readiness check. Halting interview.");
+                isInitializing = false;
+                yield break;
+            }
+
+            Debug.Log("[Interview] D. Single Interviewer ready and joined session.");
+
+            // Disable ConvaiPushToTalkController on ConvaiManager so it never blocks hands-free speech
+            if (manager != null)
+            {
+                var ptt = manager.GetComponent<ConvaiPushToTalkController>();
+                if (ptt != null)
+                {
+                    ptt.enabled = false;
+                    Debug.Log("[Interview] Disabled ConvaiPushToTalkController for pure hands-free speech.");
+                }
+            }
+
+            // Ensure candidate microphone device is configured and listening pipeline started
+            EnsureMicrophoneConfigured();
+            if (manager?.Audio != null)
+            {
+                Debug.Log("[MIC] Starting initial Convai microphone capture pipeline (StartListeningAsync)...");
+                manager.Audio.StartListeningAsync();
+            }
+            SetCandidateMicrophoneMuted(false, "Pre-warming microphone for Single Interviewer start");
+
+            // Isolate active interviewer: ensure remote audio enabled & set conversation target
+            IsolateActiveInterviewer(interviewer);
+
+            // Focus camera and visual evaluator on the single interviewer
+            InterviewCameraController.Instance?.FocusOn(interviewer.transform);
+            if (InterviewVisualEvaluator.Instance != null)
+            {
+                InterviewVisualEvaluator.Instance.SetActiveSpeaker(interviewer.transform);
+            }
+
+            // 7. Begin Interview Starting State
+            SetState(InterviewState.InterviewStarting);
             interviewActive = true;
             isInitializing = false;
+
             if (PREPVRSessionManager.Instance != null)
                 PREPVRSessionManager.Instance.SetStatus(InterviewSessionStatus.InProgress);
 
-            if (InterviewTimerManager.Instance != null)
-                InterviewTimerManager.Instance.StartTimer();
+            // 8. Inject dynamic context for the single interviewer conducting the complete 10-minute interview
+            ApplySectionDynamicContext(InterviewSection.Welcome_Introduction);
 
-            // 5. Begin Stage 1 (HR Interviewer)
-            yield return StartCoroutine(BeginStage_HRInterviewer());
+            yield return null;
+
+            // 9. Request opening response from interviewer
+            string openingPrompt = "Please begin the interview now. Say: \"Welcome to the interview. Could you tell me your name and walk me through your background?\"";
+            Debug.Log("[Interview] Triggering single interviewer opening speech...");
+            yield return StartCoroutine(TriggerCharacterResponse(interviewer, HR_TRIGGER_NAME, openingPrompt, "Interviewer"));
+
+            // 10. Start 10-minute timer once interview actually begins
+            interviewStartTime = Time.time;
+            if (InterviewTimerManager.Instance != null && !InterviewTimerManager.Instance.IsRunning)
+            {
+                InterviewTimerManager.Instance.StartTimer();
+            }
+
+            SetState(InterviewState.InterviewInProgress);
         }
 
         private void EnsureCandidateProfile()
@@ -534,40 +634,32 @@ namespace PrepVR.Interview
             if (PREPVRSessionManager.Instance == null) return;
             CandidateProfile p = PREPVRSessionManager.Instance.Profile;
 
-            // 1. If not already loaded, try loading uploaded resume via PythonBackendBridge
-            if (p == null || p.skills == null || p.skills.Count == 0 || p.projects == null || p.projects.Count == 0)
+            // 1. If not already loaded, try loading uploaded resume via PythonBackendBridge ONLY if explicitly provided by user
+            if ((p == null || p.skills == null || p.skills.Count == 0 || p.projects == null || p.projects.Count == 0) &&
+                !string.IsNullOrWhiteSpace(PREPVRSessionManager.Instance.ResumePdfPath))
             {
-                var candidateResumePaths = new List<string>();
-                if (!string.IsNullOrWhiteSpace(PREPVRSessionManager.Instance.ResumePdfPath))
+                string resumePath = PREPVRSessionManager.Instance.ResumePdfPath;
+                if (File.Exists(resumePath))
                 {
-                    candidateResumePaths.Add(PREPVRSessionManager.Instance.ResumePdfPath);
-                }
-                candidateResumePaths.Add(Path.Combine(Application.dataPath, "../Backend/resume_intelligence/Sample_Candidate_Resume.pdf"));
-                candidateResumePaths.Add(Path.Combine(Application.dataPath, "../Backend/resume_intelligence/Swetha_N_Resume.pdf"));
-                candidateResumePaths.Add(Path.Combine(Application.dataPath, "../Backend/resume_intelligence/test_resume.pdf"));
-                candidateResumePaths.Add(Path.Combine(Application.dataPath, "../Backend/resume_intelligence/sample_resume.pdf"));
-
-                foreach (var path in candidateResumePaths)
-                {
-                    if (File.Exists(path))
+                    Debug.Log($"[RESUME] Attempting to extract candidate profile from user-selected resume: {resumePath}");
+                    if (PythonBackendBridge.TryProcessResume(resumePath, out CandidateProfile parsedProfile, out _, out string parseError))
                     {
-                        Debug.Log($"[RESUME] Attempting to extract candidate profile from: {path}");
-                        if (PythonBackendBridge.TryProcessResume(path, out CandidateProfile parsedProfile, out _, out string parseError))
+                        if (parsedProfile != null && parsedProfile.skills != null && parsedProfile.skills.Count > 0)
                         {
-                            if (parsedProfile != null && parsedProfile.skills != null && parsedProfile.skills.Count > 0)
-                            {
-                                p = parsedProfile;
-                                PREPVRSessionManager.Instance.Profile = p;
-                                PREPVRSessionManager.Instance.ResumePdfPath = path;
-                                Debug.Log($"[RESUME] Successfully parsed candidate profile from {Path.GetFileName(path)}");
-                                break;
-                            }
-                        }
-                        else
-                        {
-                            Debug.LogWarning($"[RESUME] PythonBackendBridge parse warning on {path}: {parseError}");
+                            p = parsedProfile;
+                            PREPVRSessionManager.Instance.Profile = p;
+                            isResumeFallbackActive = false;
+                            Debug.Log($"[RESUME] Successfully parsed candidate profile from {Path.GetFileName(resumePath)}");
                         }
                     }
+                    else
+                    {
+                        Debug.LogWarning($"[RESUME] PythonBackendBridge parse warning on {resumePath}: {parseError}");
+                    }
+                }
+                else
+                {
+                    Debug.LogWarning($"[RESUME] User-specified resume file not found at: {resumePath}");
                 }
             }
 
@@ -579,151 +671,434 @@ namespace PrepVR.Interview
                 {
                     p = session.candidateProfile;
                     PREPVRSessionManager.Instance.Profile = p;
+                    isResumeFallbackActive = false;
                     Debug.Log($"[InterviewOrchestrator] Adopted CandidateProfile from scene InterviewSession: {p.name}");
                 }
             }
 
-            // 3. Fallback to general baseline technical profile if still unpopulated (without hardcoding candidate name)
+            // 3. Fallback if resume extraction was unavailable
             if (p == null) p = new CandidateProfile();
-            if (!string.IsNullOrWhiteSpace(p.name) && p.name.IndexOf("Swetha", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (string.IsNullOrWhiteSpace(p.name) || p.name == "Candidate")
             {
-                p.name = "";
+                p.name = ""; // Captured dynamically from spoken introduction
             }
 
             if (p.skills == null || p.skills.Count == 0)
             {
-                p.name = ""; // Name will come from the candidate's actual spoken introduction
-                p.education = "Bachelor of Technology in Computer Science and Engineering";
-                p.skills = new List<string> { "Python", "Java", "C", "SQL", "MongoDB", "Node.js", "Express", "REST API", "Git", "Docker", "Unity", "TypeScript" };
-                p.projects = new List<string> {
-                    "Smart SMS - AI-Powered Messaging Architecture & Real-Time Analytics (Node.js, Express, MongoDB, Groq API)",
-                    "Decentralized Medical Supply Chain Tracker (Hyperledger Fabric, Node.js)"
-                };
-                p.experience = new List<string> { "Software Engineering Intern (Node.js, Express, MongoDB)" };
-                p.certifications = new List<string> { "MongoDB Certified Developer Associate", "Oracle Certified Professional: Java SE" };
-                p.achievements = new List<string> { "First Place - National Smart Hackathon for Smart SMS system design" };
+                isResumeFallbackActive = true;
+                Debug.LogWarning("[RESUME] Resume extraction unavailable. Gracefully falling back to general interview questions without fabricated credentials.");
+                p.name = "";
+                p.education = "Higher Education / Technical Degree";
+                p.skills = new List<string>();
+                p.projects = new List<string>();
+                p.experience = new List<string>();
+                p.certifications = new List<string>();
+                p.achievements = new List<string>();
                 PREPVRSessionManager.Instance.Profile = p;
             }
 
-            // Structured [RESUME] logging required by verification:
-            Debug.Log($"[RESUME]\nCandidate profile created:\nName: {(string.IsNullOrWhiteSpace(p.name) ? "(Awaiting Spoken Introduction)" : p.name)}\nEducation: {p.education}\nSkills: {string.Join(", ", p.skills)}\nProjects: {string.Join(" | ", p.projects)}\nExperience: {(p.experience != null && p.experience.Count > 0 ? string.Join(" | ", p.experience) : "None")}\nCertifications: {(p.certifications != null && p.certifications.Count > 0 ? string.Join(" | ", p.certifications) : "None")}\nAchievements: {(p.achievements != null && p.achievements.Count > 0 ? string.Join(" | ", p.achievements) : "None")}");
+            Debug.Log($"[RESUME]\nCandidate profile created:\nName: {(string.IsNullOrWhiteSpace(p.name) ? "(Awaiting Spoken Introduction)" : p.name)}\nEducation: {p.education}\nSkills: {string.Join(", ", p.skills)}\nProjects: {string.Join(" | ", p.projects)}\nExperience: {(p.experience != null && p.experience.Count > 0 ? string.Join(" | ", p.experience) : "None")}\nFallback Mode: {isResumeFallbackActive}");
         }
+
+        private const string NATURAL_SPEECH_DELIVERY_INSTRUCTION =
+            "DELIVERY & PACING STYLE: Speak calmly, clearly, professionally, and conversationally at a measured, deliberate pace (approx 0.88x speed). " +
+            "Use natural, concise sentences and brief conversational pauses. " +
+            "Avoid long monologues, repeated phrases, or robotic statements. " +
+            "Respond thoughtfully and directly to what the candidate actually just said. " +
+            "Ask exactly ONE clear question at a time, then stop speaking immediately and wait for the candidate to answer.";
+
+        private void ApplySectionDynamicContext(InterviewSection section)
+        {
+            if (interviewer?.DynamicContext == null) return;
+            CandidateProfile profile = PREPVRSessionManager.Instance?.Profile;
+            string candName = !string.IsNullOrWhiteSpace(profile?.name) ? profile.name : "";
+            string primaryProj = GetPrimaryProject(profile);
+            string primarySkills = GetPrimarySkills(profile);
+            string resumeSummary = BuildResumeSummary(profile);
+
+            string sectionInstruction = "";
+            switch (section)
+            {
+                case InterviewSection.Welcome_Introduction:
+                    sectionInstruction =
+                        "CURRENT SECTION: 1. Welcome & Introduction (00:00 - 01:00). " +
+                        "You are conducting a complete, professional 10-minute one-on-one interview from beginning to end. " +
+                        $"{NATURAL_SPEECH_DELIVERY_INSTRUCTION} " +
+                        "1. Warmly welcome the candidate to the interview. " +
+                        "2. Wait for the candidate to introduce themselves and tell you their name. " +
+                        "3. Acknowledge what they share and listen attentively.";
+                    break;
+
+                case InterviewSection.Background_Education_HR:
+                    sectionInstruction =
+                        "CURRENT SECTION: 2. Background, Education & HR Questions (01:00 - 03:00). " +
+                        $"{NATURAL_SPEECH_DELIVERY_INSTRUCTION} " +
+                        "1. Ask questions regarding their academic background, career motivation, personal work ethic, and communication skills. " +
+                        "2. Ground your questions directly in their spoken responses and resume background. " +
+                        "3. Ask ONE clear question at a time and wait for their answer.";
+                    break;
+
+                case InterviewSection.Resume_Technical_Skills:
+                    sectionInstruction =
+                        "CURRENT SECTION: 3. Resume-Based Skills & Technical Questions (03:00 - 06:00). " +
+                        $"{NATURAL_SPEECH_DELIVERY_INSTRUCTION} " +
+                        (isResumeFallbackActive
+                            ? "Resume data was unavailable, so ask about core software engineering fundamentals, data structures, APIs, and modern programming practices. "
+                            : $"Directly explore the candidate's actual resume skills ({primarySkills}) and their primary technical project ({primaryProj}). ") +
+                        "1. Ask about technical architecture, choice of programming languages, libraries, data storage, and engineering trade-offs. " +
+                        "2. Ask probing follow-up questions about the technical choices they explain. " +
+                        "3. Ask ONE clear question at a time and wait for their response.";
+                    break;
+
+                case InterviewSection.Projects_Problem_Solving:
+                    sectionInstruction =
+                        "CURRENT SECTION: 4. Project Discussion & Problem-Solving (06:00 - 08:00). " +
+                        $"{NATURAL_SPEECH_DELIVERY_INSTRUCTION} " +
+                        (isResumeFallbackActive
+                            ? "Ask the candidate to walk through a significant project they built, focusing on problem-solving, architectural hurdles, and debugging complex bugs. "
+                            : $"Dive deep into {primaryProj}. Ask about challenging bugs, debugging strategies, performance bottlenecks, edge cases, and their specific personal contribution. ") +
+                        "1. Ask how they arrived at design decisions and what they learned. " +
+                        "2. Ask ONE clear question at a time and wait for their response.";
+                    break;
+
+                case InterviewSection.Behavioural_Situational:
+                    sectionInstruction =
+                        "CURRENT SECTION: 5. Behavioural & Situational Questions (STAR Framework) (08:00 - 09:30). " +
+                        $"{NATURAL_SPEECH_DELIVERY_INSTRUCTION} " +
+                        "1. Ask situational questions evaluating teamwork, handling interpersonal conflict, managing tight deadlines, taking accountability, and adaptability when project requirements change. " +
+                        "2. Evaluate their responses using the STAR method (Situation, Task, Action, Result). " +
+                        "3. Ask ONE clear question at a time and wait for their response.";
+                    break;
+
+                case InterviewSection.Final_Question_Closing:
+                    sectionInstruction =
+                        "CURRENT SECTION: 6. Final Question & Professional Closing (09:30 - 10:00). " +
+                        $"{NATURAL_SPEECH_DELIVERY_INSTRUCTION} " +
+                        "The 10-minute interview is wrapping up. " +
+                        "Ask if the candidate has anything important to add or any questions for you. " +
+                        "After their brief response, deliver a warm, polite closing statement thanking them for their time.";
+                    break;
+            }
+
+            try
+            {
+                var dict = new Dictionary<string, string>
+                {
+                    { "interview_type", "Comprehensive 10-Minute Technical & HR Interview" },
+                    { "interviewer_role", "Lead AI Interviewer" },
+                    { "candidate_name", candName },
+                    { "resume_context", isResumeFallbackActive ? "Personalized resume data temporarily unavailable; using general technical and behavioral context." : resumeSummary },
+                    { "current_section", section.ToString() },
+                    { "instructions", sectionInstruction }
+                };
+
+                interviewer.DynamicContext.SetStates(dict, ConvaiRespondMode.Silent);
+                interviewer.DynamicContext.Flush();
+                Debug.Log($"[AI] Context updated for Section {section} (Resume Fallback: {isResumeFallbackActive}).");
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[AI] Error updating interviewer DynamicContext: {ex.Message}");
+            }
+        }
+
+        private readonly Dictionary<ConvaiCharacter, Action> charReadyActions = new();
+        private readonly Dictionary<ConvaiCharacter, Action> charSpeechStartActions = new();
+        private readonly Dictionary<ConvaiCharacter, Action> charSpeechStopActions = new();
+        private readonly Dictionary<ConvaiCharacter, Action<bool>> charTurnCompleteActions = new();
 
         private void WireCharacterDebugEvents(ConvaiCharacter ch, string role)
         {
             if (ch == null) return;
-            ch.OnCharacterReady += () =>
+            UnwireCharacterDebugEvents(ch);
+
+            Action onReady = () =>
             {
                 Debug.Log($"[ConvaiDebug] {role} character initialized (OnCharacterReady event)");
-                if (role == "HR")
-                {
-                    Debug.Log("[Interview] D. HR character ready");
-                }
+                Debug.Log("[Interview] D. Single Interviewer character ready");
             };
-            ch.OnSpeechStarted += () =>
+            Action onSpeechStart = () =>
             {
-                Debug.Log($"[AUDIO] Interviewer [{role}] audio response started");
+                Debug.Log($"[AUDIO] Interviewer [{role}] audio response started at {AuthoritativeElapsedTime:F2}s");
                 StartInterviewerSpeakingTurn(ch, role);
             };
-            ch.OnSpeechStopped += () =>
+            Action onSpeechStop = () =>
             {
-                Debug.Log($"[ConvaiDebug] Character audio completed ({role})");
+                Debug.Log($"[ConvaiDebug] Character audio completed ({role}) at {AuthoritativeElapsedTime:F2}s");
+                OnInterviewerAudioStopped(ch, role, $"ConvaiCharacter.OnSpeechStopped({role})");
             };
-            ch.OnTurnCompleted += (wasInterrupted) =>
+            Action<bool> onTurnComplete = (wasInterrupted) =>
             {
-                Debug.Log($"[AUDIO] Character.OnTurnCompleted received ({role}, interrupted={wasInterrupted})");
-                if (activeTurnCharacter == ch)
+                Debug.Log($"[AUDIO] Character.OnTurnCompleted received ({role}, interrupted={wasInterrupted}) at {AuthoritativeElapsedTime:F2}s");
+                OnInterviewerTurnCompleted(ch, role, wasInterrupted, $"ConvaiCharacter.OnTurnCompleted({role})");
+            };
+
+            charReadyActions[ch] = onReady;
+            charSpeechStartActions[ch] = onSpeechStart;
+            charSpeechStopActions[ch] = onSpeechStop;
+            charTurnCompleteActions[ch] = onTurnComplete;
+
+            ch.OnCharacterReady += onReady;
+            ch.OnSpeechStarted += onSpeechStart;
+            ch.OnSpeechStopped += onSpeechStop;
+            ch.OnTurnCompleted += onTurnComplete;
+        }
+
+        private void UnwireCharacterDebugEvents(ConvaiCharacter ch)
+        {
+            if (ch == null) return;
+            if (charReadyActions.TryGetValue(ch, out var onReady))
+            {
+                ch.OnCharacterReady -= onReady;
+                charReadyActions.Remove(ch);
+            }
+            if (charSpeechStartActions.TryGetValue(ch, out var onSpeechStart))
+            {
+                ch.OnSpeechStarted -= onSpeechStart;
+                charSpeechStartActions.Remove(ch);
+            }
+            if (charSpeechStopActions.TryGetValue(ch, out var onSpeechStop))
+            {
+                ch.OnSpeechStopped -= onSpeechStop;
+                charSpeechStopActions.Remove(ch);
+            }
+            if (charTurnCompleteActions.TryGetValue(ch, out var onTurnComplete))
+            {
+                ch.OnTurnCompleted -= onTurnComplete;
+                charTurnCompleteActions.Remove(ch);
+            }
+        }
+
+        private void EnsureMicrophoneConfigured()
+        {
+            try
+            {
+                string[] devices = Microphone.devices;
+                int count = devices != null ? devices.Length : 0;
+                Debug.Log("[MIC] --- Microphone Discovery & Initialization Audit ---");
+                Debug.Log($"[MIC] Total available recording devices detected: {count}");
+
+                if (count == 0)
                 {
-                    characterTurnCompletedReceived = true;
+                    Debug.LogWarning("[MIC] No recording microphone devices detected by Unity Microphone.devices! Please check hardware and Windows audio settings.");
+                    return;
                 }
-            };
+
+                for (int i = 0; i < count; i++)
+                {
+                    Debug.Log($"[MIC] Device [{i}]: \"{devices[i]}\"");
+                }
+
+                string selectedMode = PREPVRSessionManager.Instance?.SelectedMode ?? "DESK";
+                string targetDevice = devices[0];
+
+                bool isOculusVirtual = targetDevice.IndexOf("Oculus", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       targetDevice.IndexOf("Virtual", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                if (selectedMode == "DESK" || Application.isEditor)
+                {
+                    if (isOculusVirtual)
+                    {
+                        Debug.LogWarning($"[MIC] Default recording device is \"{targetDevice}\". Searching for physical fallback microphone...");
+                        string physicalCandidate = null;
+                        for (int i = 0; i < count; i++)
+                        {
+                            string d = devices[i];
+                            if (d.IndexOf("Oculus", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                d.IndexOf("Virtual", StringComparison.OrdinalIgnoreCase) < 0)
+                            {
+                                physicalCandidate = d;
+                                break;
+                            }
+                        }
+
+                        if (!string.IsNullOrEmpty(physicalCandidate))
+                        {
+                            targetDevice = physicalCandidate;
+                            Debug.Log($"[MIC] Selected physical fallback microphone: \"{targetDevice}\"");
+                        }
+                    }
+                }
+
+                ConvaiManager manager = ConvaiManager.ActiveManager;
+                if (manager != null && manager.TryGetRuntimeSettingsService(out IConvaiRuntimeSettingsService runtimeSettings))
+                {
+                    Debug.Log($"[MIC] Applying preferred microphone device to Convai RuntimeSettings: \"{targetDevice}\"");
+                    runtimeSettings.Apply(new ConvaiRuntimeSettingsPatch
+                    {
+                        PreferredMicrophoneDeviceId = targetDevice
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[MIC] EnsureMicrophoneConfigured warning: {ex.Message}");
+            }
         }
 
         public void StartInterviewerSpeakingTurn(ConvaiCharacter character, string speakerRole)
         {
-            if (isInterviewerSpeakingTurn && activeTurnCharacter == character) return;
-            isInterviewerSpeakingTurn = true;
-            activeTurnCharacter = character;
-            characterTurnCompletedReceived = false;
-            currentTurnQuestionBuilder.Clear();
-            if (currentTurnState != TurnState.HandoffSpeaking && currentTurnState != TurnState.ClosingSpeaking)
+            lock (turnLock)
             {
-                currentTurnState = TurnState.InterviewerSpeaking;
+                if (isInterviewerSpeakingTurn && (character == interviewer || character == null))
+                {
+                    return;
+                }
+
+                currentTurnId++;
+                isInterviewerSpeakingTurn = true;
+                characterAudioCompletedReceived = false;
+                characterTurnCompletedReceived = false;
+                lastInterviewerSpeechStartTime = Time.time;
+                lastInterviewerSpeechStopTime = 0f;
+                currentTurnQuestionBuilder.Clear();
+
+                if (currentTurnState != TurnState.ClosingSpeaking)
+                {
+                    currentTurnState = TurnState.InterviewerSpeaking;
+                }
             }
-            SetCandidateMicrophoneMuted(true);
-            Debug.Log($"[TURN] Interviewer response started ({speakerRole})");
-            Debug.Log($"[AUDIO] Interviewer [{speakerRole}] started speaking turn ({currentTurnState}).");
+
+            SetCandidateMicrophoneMuted(true, $"Interviewer turn #{currentTurnId} started");
+            Debug.Log($"[TURN] Interviewer response started (Turn #{currentTurnId}) at {AuthoritativeElapsedTime:F2}s");
 
             if (turnCompletionCoroutine != null) StopCoroutine(turnCompletionCoroutine);
-            turnCompletionCoroutine = StartCoroutine(MonitorTurnCompletionCoroutine(character, speakerRole));
+            if (turnGraceTimeoutCoroutine != null) StopCoroutine(turnGraceTimeoutCoroutine);
+            turnCompletionCoroutine = StartCoroutine(WatchdogTurnCompletionCoroutine(character, speakerRole, currentTurnId));
         }
 
-        private IEnumerator MonitorTurnCompletionCoroutine(ConvaiCharacter character, string speakerRole)
-        {
-            float startWait = 0f;
-            AudioSource audioSrc = character != null ? (character.GetComponent<AudioSource>() ?? character.GetComponentInChildren<AudioSource>()) : null;
+        private float lastAudioStoppedEventTime = 0f;
+        private float lastTurnCompletedEventTime = 0f;
 
-            // Wait for speech / audio playback to begin (max 3.5s)
-            while (startWait < 3.5f)
+        public void OnInterviewerAudioStopped(ConvaiCharacter ch, string role, string source)
+        {
+            if (!isInterviewerSpeakingTurn) return;
+
+            float now = Time.time;
+            if (now - lastAudioStoppedEventTime < 0.1f) return;
+            lastAudioStoppedEventTime = now;
+            lastInterviewerSpeechStopTime = now;
+            characterAudioCompletedReceived = true;
+
+            Debug.Log($"[AUDIO_LIFECYCLE] Interviewer audio stopped (Source: {source}, TurnId: #{currentTurnId}, TurnCompleted: {characterTurnCompletedReceived}) at {AuthoritativeElapsedTime:F2}s");
+
+            if (characterTurnCompletedReceived)
             {
-                bool isAudioPlaying = audioSrc != null && audioSrc.isPlaying;
-                bool isConvaiSpeaking = character != null && character.IsSpeaking;
-                if (isAudioPlaying || isConvaiSpeaking)
-                {
-                    break;
-                }
-                yield return new WaitForSeconds(0.05f);
-                startWait += 0.05f;
+                CompleteInterviewerSpeakingTurn(ch, role, $"{source} (TurnCompleted already confirmed)");
+                return;
             }
 
-            bool audioHasStarted = (audioSrc != null && audioSrc.isPlaying) || (character != null && character.IsSpeaking);
-            float silenceDuration = 0f;
-            float turnElapsed = 0f;
-            float maxTurnDuration = 60f;
+            // Start safety silence watchdog in case TurnCompleted does not arrive
+            if (turnGraceTimeoutCoroutine != null) StopCoroutine(turnGraceTimeoutCoroutine);
+            turnGraceTimeoutCoroutine = StartCoroutine(GraceTimeoutCompleteTurnCoroutine(ch, role, currentTurnId, 3.5f, "SpeechStopped safety silence window elapsed"));
+        }
 
-            while (turnElapsed < maxTurnDuration)
+        public void OnInterviewerTurnCompleted(ConvaiCharacter ch, string role, bool wasInterrupted, string source)
+        {
+            if (!isInterviewerSpeakingTurn) return;
+
+            float now = Time.time;
+            if (now - lastTurnCompletedEventTime < 0.1f) return;
+            lastTurnCompletedEventTime = now;
+            characterTurnCompletedReceived = true;
+
+            Debug.Log($"[AUDIO_LIFECYCLE] Interviewer turn completed received (Source: {source}, Interrupted: {wasInterrupted}, AudioStopped: {characterAudioCompletedReceived}) at {AuthoritativeElapsedTime:F2}s");
+
+            if (wasInterrupted)
             {
-                bool isAudioPlaying = audioSrc != null && audioSrc.isPlaying;
-                bool isConvaiSpeaking = character != null && character.IsSpeaking;
+                CompleteInterviewerSpeakingTurn(ch, role, $"{source} (Turn interrupted)");
+                return;
+            }
 
-                if (isAudioPlaying || isConvaiSpeaking)
+            bool isStillSpeaking = ch != null && ch.IsSpeaking;
+            if (characterAudioCompletedReceived || !isStillSpeaking)
+            {
+                CompleteInterviewerSpeakingTurn(ch, role, $"{source} (Audio already stopped / confirmed idle)");
+                return;
+            }
+
+            // Audio might be finishing final syllables (e.g. 200-400ms)
+            if (turnGraceTimeoutCoroutine != null) StopCoroutine(turnGraceTimeoutCoroutine);
+            turnGraceTimeoutCoroutine = StartCoroutine(GraceTimeoutCompleteTurnCoroutine(ch, role, currentTurnId, 0.7f, "TurnCompleted audio tail grace window elapsed"));
+        }
+
+        private IEnumerator GraceTimeoutCompleteTurnCoroutine(ConvaiCharacter ch, string role, int turnId, float delaySeconds, string reason)
+        {
+            yield return new WaitForSeconds(delaySeconds);
+
+            if (isInterviewerSpeakingTurn && currentTurnId == turnId)
+            {
+                bool isStillSpeaking = ch != null && ch.IsSpeaking;
+                if (!isStillSpeaking)
                 {
-                    audioHasStarted = true;
-                    silenceDuration = 0f;
+                    CompleteInterviewerSpeakingTurn(ch, role, reason);
                 }
                 else
                 {
-                    silenceDuration += 0.05f;
+                    Debug.Log($"[AUDIO_LIFECYCLE] Grace timeout expired for turn #{turnId}, but character is still actively speaking. Allowing natural speech completion.");
+                }
+            }
+        }
+
+        private IEnumerator WatchdogTurnCompletionCoroutine(ConvaiCharacter character, string speakerRole, int turnId)
+        {
+            float maxTurnDuration = 30f; // 30s max bounded turn safety
+            float elapsed = 0f;
+
+            while (elapsed < maxTurnDuration)
+            {
+                yield return new WaitForSeconds(0.2f);
+                elapsed += 0.2f;
+
+                if (!isInterviewerSpeakingTurn || currentTurnId != turnId)
+                {
+                    yield break;
                 }
 
-                // If server sent TurnCompleted AND audio playback has finished:
-                // Require only 0.05s to confirm audio finished without buffering glitch.
-                // This activates candidate microphone almost instantaneously (<50ms) after the interviewer finishes speaking!
-                if (characterTurnCompletedReceived && audioHasStarted && !isAudioPlaying && !isConvaiSpeaking)
+                if (characterAudioCompletedReceived && characterTurnCompletedReceived)
                 {
-                    if (silenceDuration >= 0.05f)
-                    {
-                        break;
-                    }
-                }
-                // Fallback: If TurnCompleted received but audio never started within 1.0s:
-                else if (characterTurnCompletedReceived && !audioHasStarted && silenceDuration >= 1.0f)
-                {
-                    break;
-                }
-                // Fallback without TurnCompleted: audio started, but silence lasted >= 0.35s (natural phrase end)
-                else if (audioHasStarted && !isAudioPlaying && !isConvaiSpeaking && silenceDuration >= 0.35f)
-                {
-                    break;
-                }
-                // If candidate speech has already begun while audio finished:
-                else if (audioHasStarted && !isAudioPlaying && !isConvaiSpeaking && (currentTurnState == TurnState.CandidateSpeaking || candidateAnswerBuffer.Length > 0))
-                {
-                    break;
+                    CompleteInterviewerSpeakingTurn(character, speakerRole, "Both audio stopped and turn completed confirmed");
+                    yield break;
                 }
 
-                yield return new WaitForSeconds(0.05f);
-                turnElapsed += 0.05f;
+                if (characterTurnCompletedReceived && characterAudioCompletedReceived && lastInterviewerSpeechStopTime > 0f && (Time.time - lastInterviewerSpeechStopTime >= 0.4f))
+                {
+                    CompleteInterviewerSpeakingTurn(character, speakerRole, "TurnCompleted and audio stopped confirmed");
+                    yield break;
+                }
+
+                if (candidateAnswerBuffer.Length > 0 && characterAudioCompletedReceived && characterTurnCompletedReceived)
+                {
+                    CompleteInterviewerSpeakingTurn(character, speakerRole, "Candidate speech detected while interviewer quiet");
+                    yield break;
+                }
+            }
+
+            if (isInterviewerSpeakingTurn && currentTurnId == turnId)
+            {
+                Debug.LogWarning($"[TURN_{turnId}] Fallback turn duration timeout reached for interviewer. Forcing turn completion.");
+                CompleteInterviewerSpeakingTurn(character, speakerRole, $"Watchdog timeout ({maxTurnDuration}s)");
+            }
+        }
+
+        public void CompleteInterviewerSpeakingTurn(ConvaiCharacter character, string speakerRole, string completionSource)
+        {
+            lock (turnLock)
+            {
+                if (!isInterviewerSpeakingTurn) return;
+
+                isInterviewerSpeakingTurn = false;
+
+                if (turnCompletionCoroutine != null)
+                {
+                    StopCoroutine(turnCompletionCoroutine);
+                    turnCompletionCoroutine = null;
+                }
+                if (turnGraceTimeoutCoroutine != null)
+                {
+                    StopCoroutine(turnGraceTimeoutCoroutine);
+                    turnGraceTimeoutCoroutine = null;
+                }
             }
 
             string fullQuestion = currentTurnQuestionBuilder.ToString().Trim();
@@ -733,13 +1108,13 @@ namespace PrepVR.Interview
             }
 
             lastRecordedQuestion = fullQuestion;
-            Debug.Log($"[AUDIO] Interviewer [{speakerRole}] finished speaking.");
+            Debug.Log($"[AUDIO] Interviewer finished speaking. (Source: {completionSource}) at {AuthoritativeElapsedTime:F2}s");
             Debug.Log($"[QUESTION] Generated question/statement: \"{fullQuestion}\"");
 
-            // Commit complete single question to transcript
+            // Record transcript
             if (PREPVRSessionManager.Instance != null && !string.IsNullOrWhiteSpace(fullQuestion))
             {
-                PREPVRSessionManager.Instance.RecordTranscript(speakerRole, fullQuestion, isQuestion: true);
+                PREPVRSessionManager.Instance.RecordTranscript("Interviewer", fullQuestion, isQuestion: true);
             }
 
             if (InterviewVisualEvaluator.Instance != null)
@@ -747,451 +1122,52 @@ namespace PrepVR.Interview
                 InterviewVisualEvaluator.Instance.RecordQuestionEnded(AuthoritativeElapsedTime);
             }
 
-            isInterviewerSpeakingTurn = false;
-            activeTurnCharacter = null;
-            turnCompletionCoroutine = null;
-
-            // Handle special statement states (Closing or Handoff)
-            if (currentTurnState == TurnState.ClosingSpeaking)
+            // Handle special states
+            if (currentState == InterviewState.ClosingConversation || currentTurnState == TurnState.ClosingSpeaking)
             {
-                Debug.Log($"[Interview] Interviewer [{speakerRole}] finished final closing statement. Concluding interview session.");
-                currentTurnState = TurnState.Concluding;
-                StartCoroutine(ConcludeInterviewCoroutine());
-                yield break;
+                Debug.Log("[Interview] Interviewer finished speaking final closing statement. Entering WaitingForClosingAudio state.");
+                SetState(InterviewState.WaitingForClosingAudio);
+                StartCoroutine(WaitForClosingAudioAndCompleteCoroutine());
+                return;
             }
 
-            if (currentTurnState == TurnState.HandoffSpeaking)
-            {
-                Debug.Log($"[Interview] Interviewer [{speakerRole}] finished handoff statement. Stage transition ready.");
-                isHandoffSpeechCompleted = true;
-                if (currentStage == HRInterviewStage.HRInterviewer)
-                {
-                    StartCoroutine(BeginStage_BehavioralInterviewer());
-                }
-                else if (currentStage == HRInterviewStage.BehavioralInterviewer)
-                {
-                    StartCoroutine(BeginStage_HiringManager());
-                }
-                yield break;
-            }
+            totalQuestionsAsked++;
+            currentSectionQuestionCount++;
+            interviewTranscriptLines.Add($"Interviewer: {fullQuestion}");
 
-            // Record question counts for normal stage questions
-            switch (currentStage)
-            {
-                case HRInterviewStage.HRInterviewer:
-                    hrQuestionCount++;
-                    hrTranscriptLines.Add($"HR ({speakerRole}): {fullQuestion}");
-                    Debug.Log($"[Interview] Complete HR Question #{hrQuestionCount} recorded: \"{fullQuestion}\"");
-                    CheckHRStageTransition(fullQuestion);
-                    break;
-                case HRInterviewStage.BehavioralInterviewer:
-                    behaviorQuestionCount++;
-                    behaviorTranscriptLines.Add($"Technical ({speakerRole}): {fullQuestion}");
-                    Debug.Log($"[Interview] Complete Technical Question #{behaviorQuestionCount} recorded: \"{fullQuestion}\"");
-                    CheckBehavioralStageTransition(fullQuestion);
-                    break;
-                case HRInterviewStage.HiringManager:
-                    hiringMgrQuestionCount++;
-                    Debug.Log($"[Interview] Complete Hiring Manager Question #{hiringMgrQuestionCount} recorded: \"{fullQuestion}\"");
-                    CheckHiringManagerStageTransition(fullQuestion);
-                    break;
-            }
-
-            // [TURN] Interviewer finished -> [MIC] Candidate microphone ACTIVE -> Transition to WaitingForCandidate
-            Debug.Log("[TURN] Interviewer finished");
+            // Candidate turn begins -> unmute microphone
+            Debug.Log("[TURN] Interviewer finished. Candidate microphone ACTIVE.");
             currentTurnState = TurnState.WaitingForCandidate;
-            SetCandidateMicrophoneMuted(false);
-            Debug.Log("[MIC] Candidate microphone ACTIVE");
+            SetCandidateMicrophoneMuted(false, "Interviewer finished speaking; candidate may respond");
 
-            // Fire public notification for automated tester or UI
-            OnInterviewerQuestionFinished?.Invoke(speakerRole, fullQuestion);
+            // Enforce clean neutral idle mouth pose on completed speaker
+            interviewer?.GetComponent<InterviewAvatarMouthController>()?.EnforceNeutralMouthPoseImmediate();
+
+            // Fire event
+            OnInterviewerQuestionFinished?.Invoke("Interviewer", fullQuestion);
         }
 
-        // ====================================================================
-        // Stage 1 — HR Interviewer
-        // ====================================================================
-        private IEnumerator BeginStage_HRInterviewer()
+        private void EnsureAvatarMouthController(ConvaiCharacter character, string role)
         {
-            currentStage = HRInterviewStage.HRInterviewer;
-            Debug.Log("[ConvaiDebug] Stage 1: HR Interviewer active.");
-            if (InterviewTimerManager.Instance != null)
+            if (character == null) return;
+            var controller = character.GetComponent<InterviewAvatarMouthController>();
+            if (controller == null)
             {
-                InterviewTimerManager.Instance.SetCustomStage("Stage 1: HR Interviewer");
+                controller = character.gameObject.AddComponent<InterviewAvatarMouthController>();
             }
-
-            CandidateProfile profile  = PREPVRSessionManager.Instance?.Profile;
-            string           candName = !string.IsNullOrWhiteSpace(profile?.name) ? profile.name : "Candidate";
-
-            // 1. Await Convai room connection
-            yield return WaitForRoomConnection(25f);
-            ConvaiManager manager = ConvaiManager.ActiveManager;
-            if (manager == null || !manager.IsConnected)
-            {
-                Debug.LogError("[ConvaiDebug] Convai room failed to connect within timeout. Halting Stage 1 (HR).");
-                yield break;
-            }
-
-            // Ensure Manual targeting mode is locked
-            if (manager.ConversationTargeting != null)
-            {
-                manager.ConversationTargeting.Mode = ConversationTargetingMode.Manual;
-            }
-
-            Debug.Log("[Interview] C. Convai Manager ready");
-
-            // 2. Await HR character readiness & session membership
-            yield return WaitForAuthoritativeReadiness(hrInterviewer, "HR", 35f);
-            if (!IsCharacterAuthoritativelyReady(hrInterviewer))
-            {
-                Debug.LogError("[ConvaiDebug] HR character failed authoritative readiness check. Halting Stage 1.");
-                yield break;
-            }
-
-            Debug.Log("[Interview] D. HR character ready");
-
-            // Ensure ConvaiPushToTalkController is disabled on ConvaiManager so it never blocks hands-free speech
-            if (manager != null)
-            {
-                var ptt = manager.GetComponent<ConvaiPushToTalkController>();
-                if (ptt != null)
-                {
-                    ptt.enabled = false;
-                    Debug.Log("[Interview] Disabled ConvaiPushToTalkController for pure hands-free speech.");
-                }
-            }
-
-            // Ensure candidate microphone is pre-warmed and active in WebRTC
-            SetCandidateMicrophoneMuted(false);
-
-            // 3. Address HR explicitly and isolate remote audio
-            IsolateActiveInterviewer(hrInterviewer);
-
-            interviewStartTime = Time.time;
-            stageStartTime     = Time.time;
-            if (InterviewTimerManager.Instance != null && !InterviewTimerManager.Instance.IsRunning)
-            {
-                InterviewTimerManager.Instance.StartTimer();
-            }
-
-            if (hrInterviewer != null)
-            {
-                InterviewCameraController.Instance?.FocusOn(hrInterviewer.transform);
-            }
-
-            if (InterviewVisualEvaluator.Instance != null && hrInterviewer != null)
-                InterviewVisualEvaluator.Instance.SetActiveSpeaker(hrInterviewer.transform);
-
-            // 5. Await conversation input availability
-            yield return WaitForConversationInputAvailability(10f);
-
-            // 6. Inject Stage 1 DynamicContext with candidate resume
-            try
-            {
-                IConvaiDynamicContext dyn = hrInterviewer?.DynamicContext;
-                if (dyn != null)
-                {
-                    dyn.SetStates(new Dictionary<string, string>
-                    {
-                        { "stage",                  "1" },
-                        { "stage_role",             "HR Interviewer" },
-                        { "candidate_name",         "" },
-                        { "candidate_education",    profile?.education ?? "Computer Science" },
-                        { "candidate_skills",       profile?.skills != null ? string.Join(", ", profile.skills) : "Software Engineering" },
-                        { "candidate_projects",     profile?.projects != null ? string.Join(" | ", profile.projects) : "Web and VR projects" },
-                        { "resume_context",         BuildResumeSummary(profile) },
-                        { "instructions",
-                          "You are the HR Interviewer conducting Stage 1 (0:00 - 3:20) of a 3-person professional panel interview. " +
-                          "You are the FIRST interviewer. " +
-                          "1. Your very first opening statement to the candidate MUST be: 'Welcome to the interview. Could you tell me your name and walk me through your background?' " +
-                          "2. Do not assume or guess the candidate's name in advance. Wait for the candidate to tell you their name in their spoken introduction. " +
-                          "3. Ask subsequent questions directly grounded in their actual spoken responses and resume background. " +
-                          "4. Listen carefully to their answers, acknowledge what they actually said, and ask relevant follow-up questions. " +
-                          "5. Ask ONE question at a time and wait for the candidate's answer. Never ask multiple questions at once. " +
-                          "6. Never say you are an AI or language model. " +
-                          "7. Do NOT conduct deep coding tests in this stage. Focus on background, resume projects, motivation, and communication. " +
-                          "8. Continue the interview until approximately 3 minutes and 20 seconds, then conclude your stage by saying: " +
-                          "'Thank you. I will now pass you on to our Technical Interviewer.' " +
-                          "Use that phrase to signal the handoff." }
-                    }, ConvaiRespondMode.Silent);
-                    dyn.Flush();
-                    Debug.Log($"[AI] Context passed to interviewer:\nRole: HR Interviewer\nCandidate: (Awaiting Spoken Introduction)\nResume Context: {BuildResumeSummary(profile)}");
-                    Debug.Log("[ConvaiDebug] HR Interviewer DynamicContext applied with resume data.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[ConvaiDebug] HR DynamicContext warning: {ex.Message}");
-            }
-
-            yield return null;
-
-            // 7. Request first HR response via the proven conversational pipeline
-            string hrPrompt = "Please begin the interview now. Say: \"Welcome to the interview. Could you tell me your name and walk me through your background?\"";
-            Debug.Log("[Interview] Triggering HR opening speech...");
-            yield return StartCoroutine(TriggerCharacterResponse(hrInterviewer, HR_TRIGGER_NAME, hrPrompt, "HR"));
+            controller.InitializeComponents();
         }
 
-        // ====================================================================
-        // ====================================================================
-        // Stage 2 — Technical Interviewer (Resume Projects & Technical Skills)
-        // ====================================================================
-        private IEnumerator BeginStage_BehavioralInterviewer()
-        {
-            if (isTransitioningStage) yield break;
-            isTransitioningStage = true;
-
-            Debug.Log("[INTERVIEW] === BEGINNING STAGE 2: TECHNICAL INTERVIEWER (200s - 400s) ===");
-            Debug.Log($"[INTERVIEW] Phase: Technical. Character: {behavioralInterviewer?.CharacterName}");
-
-            // 1. Cancel any pending candidate response scheduled for HR
-            InterviewAutomatedTester.Instance?.CancelPendingResponse();
-
-            // 2. Ensure candidate is completely done speaking and no turn processing is underway
-            float waitCand = 0f;
-            while ((IsCandidateSpeakingOrTurnActive || candidateAnswerBuffer.Length > 0 || candidateAnswerDebounceCoroutine != null) && waitCand < 15f)
-            {
-                yield return new WaitForSeconds(0.1f);
-                waitCand += 0.1f;
-            }
-
-            // 3. Ensure HR is not speaking before proceeding
-            float waitHR = 0f;
-            while ((isInterviewerSpeakingTurn || (hrInterviewer != null && hrInterviewer.IsSpeaking)) && waitHR < 15f)
-            {
-                yield return new WaitForSeconds(0.1f);
-                waitHR += 0.1f;
-            }
-
-            // 3. Switch currentStage to BehavioralInterviewer (Technical panel role)
-            currentStage = HRInterviewStage.BehavioralInterviewer;
-
-            if (InterviewTimerManager.Instance != null)
-            {
-                InterviewTimerManager.Instance.SetCustomStage("Stage 2: Technical Interviewer (3:20 - 6:40)");
-            }
-
-            // 4. Verify Convai room connection
-            ConvaiManager manager = ConvaiManager.ActiveManager;
-            if (manager == null || !manager.IsConnected)
-            {
-                Debug.LogError("[ConvaiDebug] Room not connected for Stage 2. Halting.");
-                isTransitioningStage = false;
-                yield break;
-            }
-
-            // 5. Ensure Technical interviewer is authoritatively ready
-            yield return WaitForAuthoritativeReadiness(behavioralInterviewer, "Technical Interviewer", 15f);
-
-            // 6. Isolate active interviewer: enable audio on Technical, disable on inactive panel members
-            IsolateActiveInterviewer(behavioralInterviewer);
-
-            // 8. Focus camera & visual evaluator
-            if (behavioralInterviewer != null)
-            {
-                InterviewCameraController.Instance?.FocusOn(behavioralInterviewer.transform);
-                if (InterviewVisualEvaluator.Instance != null)
-                    InterviewVisualEvaluator.Instance.SetActiveSpeaker(behavioralInterviewer.transform);
-            }
-
-            // 9. Inject DynamicContext (Resume + Stage 1 transcript context)
-            CandidateProfile profile  = PREPVRSessionManager.Instance?.Profile;
-            string           candName = !string.IsNullOrWhiteSpace(profile?.name) ? profile.name : "Candidate";
-            string           stage1   = BuildStageSummary(hrTranscriptLines, "HR Interviewer");
-            string           primaryProj = GetPrimaryProject(profile);
-            string           primarySkills = GetPrimarySkills(profile);
-
-            try
-            {
-                IConvaiDynamicContext dyn = behavioralInterviewer?.DynamicContext;
-                if (dyn != null)
-                {
-                    dyn.SetStates(new Dictionary<string, string>
-                    {
-                        { "stage",                  "2" },
-                        { "stage_role",             "Technical Interviewer" },
-                        { "candidate_name",         candName },
-                        { "resume_context",         BuildResumeSummary(profile) },
-                        { "previous_stage_summary", stage1 },
-                        { "instructions",
-                          $"You are the Technical Interviewer conducting Stage 2 (3:20 - 6:40) of the panel interview for {candName}. " +
-                          "Stage 1 (HR introduction and background) is completed. You are the TECHNICAL interviewer. " +
-                          "1. Welcome the candidate to the technical round. " +
-                          $"2. Directly ask in-depth technical questions grounded in the candidate's actual resume projects (specifically {primaryProj} and technical skills: {primarySkills}). " +
-                          $"3. Ask about system architecture, data modeling, technology selection, performance, API integrations, and technical challenges in {primaryProj}. " +
-                          "4. Listen carefully to the candidate's answers and generate genuine FOLLOW-UP questions probing the specific technologies, tools, and architectural choices they just explained. " +
-                          "5. Ask ONE clear question at a time and wait for their answer. " +
-                          "6. Continue the technical interview until approximately 6 minutes and 40 seconds, then conclude your stage by saying: " +
-                          "'Thank you. I will now pass you on to our Hiring Manager.' " +
-                          "Use that phrase to signal the handoff." }
-                    }, ConvaiRespondMode.Silent);
-                    dyn.Flush();
-                    Debug.Log($"[AI] Context passed to interviewer:\nRole: Technical Interviewer\nCandidate: {candName}\nResume Context: {BuildResumeSummary(profile)}");
-                    Debug.Log("[ConvaiDebug] Technical Interviewer DynamicContext applied with resume & technical instructions.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[ConvaiDebug] Technical context error: {ex.Message}");
-            }
-
-            yield return null;
-
-            // 10. Wait for conversation input availability (max 5s)
-            yield return WaitForConversationInputAvailability(5f);
-
-            // 11. Trigger Technical opening speech via TriggerCharacterResponse
-            Debug.Log("[ConvaiDebug] Triggering Technical opening speech...");
-            string technicalPrompt = $"Hello {candName}. Please begin Stage 2 of the interview now. You are the Technical Interviewer. Greet the candidate, reference their resume project '{primaryProj}', and ask them to walk through the technical architecture and the key technical decisions they made using {primarySkills}.";
-            yield return StartCoroutine(TriggerCharacterResponse(behavioralInterviewer, BEHAVIORAL_TRIGGER_NAME, technicalPrompt, "Technical"));
-
-            isTransitioningStage = false;
-        }
-
-        // ====================================================================
-        // Stage 3 — Hiring Manager / Team Lead
-        // ====================================================================
-        private IEnumerator BeginStage_HiringManager()
-        {
-            if (isTransitioningStage) yield break;
-            isTransitioningStage = true;
-
-            Debug.Log("[Interview] === BEGINNING STAGE 3: HIRING MANAGER / TEAM LEAD (400s - 600s) ===");
-
-            // 1. Cancel any pending candidate response scheduled for Behavioral
-            InterviewAutomatedTester.Instance?.CancelPendingResponse();
-
-            // 2. Ensure candidate is completely done speaking and no turn processing is underway
-            float waitCand = 0f;
-            while ((IsCandidateSpeakingOrTurnActive || candidateAnswerBuffer.Length > 0 || candidateAnswerDebounceCoroutine != null) && waitCand < 15f)
-            {
-                yield return new WaitForSeconds(0.1f);
-                waitCand += 0.1f;
-            }
-
-            // 3. Ensure Technical interviewer is not speaking before proceeding
-            float waitTech = 0f;
-            while ((isInterviewerSpeakingTurn || (behavioralInterviewer != null && behavioralInterviewer.IsSpeaking)) && waitTech < 15f)
-            {
-                yield return new WaitForSeconds(0.1f);
-                waitTech += 0.1f;
-            }
-
-            // 3. Switch currentStage to HiringManager
-            currentStage = HRInterviewStage.HiringManager;
-
-            if (InterviewTimerManager.Instance != null)
-            {
-                InterviewTimerManager.Instance.SetCustomStage("Stage 3: Hiring Manager / Team Lead (6:40 - 10:00)");
-            }
-
-            // 4. Verify Convai room connection
-            ConvaiManager manager = ConvaiManager.ActiveManager;
-            if (manager == null || !manager.IsConnected)
-            {
-                Debug.LogError("[ConvaiDebug] Room not connected for Stage 3. Halting.");
-                isTransitioningStage = false;
-                yield break;
-            }
-
-            // 5. Ensure Hiring Manager is authoritatively ready
-            yield return WaitForAuthoritativeReadiness(hiringManager, "Hiring Manager", 15f);
-
-            // 6. Isolate active interviewer: enable audio on Hiring Manager, disable on inactive panel members
-            IsolateActiveInterviewer(hiringManager);
-
-            // 8. Focus camera & visual evaluator
-            if (hiringManager != null)
-            {
-                InterviewCameraController.Instance?.FocusOn(hiringManager.transform);
-                if (InterviewVisualEvaluator.Instance != null)
-                    InterviewVisualEvaluator.Instance.SetActiveSpeaker(hiringManager.transform);
-            }
-
-            // 9. Inject DynamicContext (Resume + Stage 1 + Stage 2 transcript context)
-            CandidateProfile profile  = PREPVRSessionManager.Instance?.Profile;
-            string           candName = !string.IsNullOrWhiteSpace(profile?.name) ? profile.name : "Candidate";
-            string           stage1   = BuildStageSummary(hrTranscriptLines, "HR Interviewer");
-            string           stage2   = BuildStageSummary(behaviorTranscriptLines, "Behavioral Interviewer");
-            string           primaryProj = GetPrimaryProject(profile);
-
-            try
-            {
-                IConvaiDynamicContext dyn = hiringManager?.DynamicContext;
-                if (dyn != null)
-                {
-                    dyn.SetStates(new Dictionary<string, string>
-                    {
-                        { "stage",                  "3" },
-                        { "stage_role",             "Hiring Manager / Team Lead" },
-                        { "candidate_name",         candName },
-                        { "resume_context",         BuildResumeSummary(profile) },
-                        { "previous_stage_summary", $"Stage 1 (HR):\n{stage1}\n\nStage 2 (Behavioral):\n{stage2}" },
-                        { "instructions",
-                          $"You are the Hiring Manager and Team Lead conducting Stage 3 (the final stage from 6:40 to 10:00) of the panel interview for {candName}. " +
-                          "Stages 1 and 2 are complete. You are an ACTIVE, VOCAL interviewer (do NOT remain silent). " +
-                          "1. Welcome the candidate to the final stage of the interview. " +
-                          $"2. Ask workplace-readiness, leadership, and managerial questions: ownership, accountability, initiative, judgment under ambiguity, prioritization, decision making, and long-term career growth regarding {primaryProj}. " +
-                          "3. Ground your questions in the candidate's resume and reference relevant information discussed in Stages 1 and 2. " +
-                          "4. Listen carefully to their answers, respond thoughtfully, and ask relevant follow-up questions. " +
-                          "5. Ask ONE question at a time. Strictly do NOT ask technical/coding questions. This is the final HR/managerial stage, NOT a technical interview. Do NOT repeat questions asked in Stages 1 or 2. " +
-                          "6. When the interview reaches the 10-minute mark, warmly thank {candName} and conclude the interview by saying: " +
-                          "'Thank you for your time today. That concludes our interview, and our evaluation team will review your session.' " +
-                          "Use that phrase to wrap up the interview." }
-                    }, ConvaiRespondMode.Silent);
-                    dyn.Flush();
-                    Debug.Log("[ConvaiDebug] Hiring Manager DynamicContext applied with Stages 1 & 2 Q&A context.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[ConvaiDebug] Hiring Manager context error: {ex.Message}");
-            }
-
-            yield return null;
-
-            // 10. Wait for conversation input availability (max 5s)
-            yield return WaitForConversationInputAvailability(5f);
-
-            // 11. Trigger Hiring Manager opening speech via TriggerCharacterResponse
-            Debug.Log("[ConvaiDebug] Triggering Hiring Manager opening speech...");
-            string hiringMgrPrompt = $"Please begin Stage 3 of the interview now. Greet the candidate for this final stage, and ask your first question focusing on ownership, leadership initiative, and professional judgment based on their project {primaryProj}.";
-            yield return StartCoroutine(TriggerCharacterResponse(hiringManager, HIRING_MGR_TRIGGER_NAME, hiringMgrPrompt, "Hiring Manager"));
-
-            isTransitioningStage = false;
-        }
-
-        // ====================================================================
-        // Conversation Targeting & Speaker Isolation Helper
-        // ====================================================================
         private void IsolateActiveInterviewer(ConvaiCharacter active)
         {
             if (active == null) return;
-            ConvaiCharacter[] panel = { hrInterviewer, behavioralInterviewer, hiringManager };
-            foreach (var c in panel)
+            try
             {
-                if (c == null) continue;
-                if (c == active)
-                {
-                    try
-                    {
-                        if (!c.IsRemoteAudioEnabled) c.EnableRemoteAudio();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogWarning($"[ConvaiDebug] Failed enabling remote audio on {c.CharacterName}: {ex.Message}");
-                    }
-                }
-                else
-                {
-                    try
-                    {
-                        if (c.IsRemoteAudioEnabled) c.DisableRemoteAudio();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogWarning($"[ConvaiDebug] Failed disabling remote audio on inactive {c.CharacterName}: {ex.Message}");
-                    }
-                }
+                if (!active.IsRemoteAudioEnabled) active.EnableRemoteAudio();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[ConvaiDebug] Failed enabling remote audio on {active.CharacterName}: {ex.Message}");
             }
             SafeSetConversationTarget(active);
         }
@@ -1211,21 +1187,6 @@ namespace PrepVR.Interview
             return "their key technical project";
         }
 
-        private string GetSecondaryProject(CandidateProfile profile)
-        {
-            if (profile?.projects != null && profile.projects.Count > 1)
-            {
-                string proj = profile.projects[1];
-                if (!string.IsNullOrWhiteSpace(proj))
-                {
-                    int dash = proj.IndexOf(" - ");
-                    if (dash > 0) return proj.Substring(0, dash).Trim();
-                    return proj.Trim();
-                }
-            }
-            return GetPrimaryProject(profile);
-        }
-
         private string GetPrimarySkills(CandidateProfile profile)
         {
             if (profile?.skills != null && profile.skills.Count > 0)
@@ -1233,18 +1194,7 @@ namespace PrepVR.Interview
                 int count = Math.Min(profile.skills.Count, 4);
                 return string.Join(", ", profile.skills.GetRange(0, count));
             }
-            return "software engineering and system design";
-        }
-
-        private string GetCurrentStageRoleName()
-        {
-            switch (currentStage)
-            {
-                case HRInterviewStage.HRInterviewer: return "HR Interviewer";
-                case HRInterviewStage.BehavioralInterviewer: return "Technical Interviewer";
-                case HRInterviewStage.HiringManager: return "Hiring Manager";
-                default: return "Interviewer";
-            }
+            return "software engineering and technical design";
         }
 
         private void SafeSetConversationTarget(ConvaiCharacter target)
@@ -1253,109 +1203,65 @@ namespace PrepVR.Interview
             ConvaiManager manager = ConvaiManager.ActiveManager;
             if (manager == null) return;
 
-            // In Convai SDK 4.6.0, scripted panel interviews require Manual targeting mode so gaze does not override.
             if (manager.ConversationTargeting != null)
             {
                 manager.ConversationTargeting.Mode = ConversationTargetingMode.Manual;
+            }
+
+            if (manager.ConversationTarget == target || manager.AddressedCharacter == target)
+            {
+                return;
             }
 
             Debug.Log($"[ConvaiDebug] Addressing {target.CharacterName} ({target.CharacterId}) via manager.TalkTo.");
             manager.TalkTo(target);
         }
 
-        // ====================================================================
-        // Speech Invocation Helper (Convai SDK 4.6.0)
-        // Uses Narrative Trigger if narrative-driven, seamlessly backed by ConvaiPlayer
-        // ====================================================================
         private IEnumerator TriggerCharacterResponse(ConvaiCharacter target, string triggerName, string prompt, string roleLabel)
         {
-            if (target == null)
-            {
-                Debug.LogError($"[Interview] Cannot trigger {roleLabel} response: target character is null.");
-                yield break;
-            }
+            if (target == null) yield break;
 
             ConvaiManager manager = ConvaiManager.ActiveManager;
             if (manager == null || !manager.IsConnected)
             {
-                Debug.LogError($"[Interview] Cannot trigger {roleLabel} response: ConvaiManager is not connected.");
+                Debug.LogError($"[Interview] Cannot trigger response: ConvaiManager is not connected.");
                 yield break;
             }
 
-            // 1. Ensure remote audio is enabled so incoming audio plays through AudioSource
             try
             {
-                if (!target.IsRemoteAudioEnabled)
-                {
-                    target.EnableRemoteAudio();
-                    Debug.Log($"[ConvaiDebug] Enabled remote audio for {target.CharacterName}.");
-                }
+                if (!target.IsRemoteAudioEnabled) target.EnableRemoteAudio();
             }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[ConvaiDebug] Remote audio enable warning on {target.CharacterName}: {ex.Message}");
-            }
+            catch { }
 
-            // 2. Ensure conversation target is set to this character
             SafeSetConversationTarget(target);
-
-            // 3. Wait for conversation input availability
             yield return WaitForConversationInputAvailability(10f);
-
-            // 4. Send prompt via ConvaiPlayer.TrySendTextMessage (proven working conversational pipeline)
             yield return StartCoroutine(SendPlayerAgentPrompt(target, prompt, roleLabel));
         }
 
-        // ====================================================================
-        // Player-Agent Conversational Prompt Helper (Convai SDK 4.6.0)
-        // Sends prompt via ConvaiPlayer.TrySendTextMessage through normal conversational pipeline
-        // ====================================================================
         private IEnumerator SendPlayerAgentPrompt(ConvaiCharacter target, string prompt, string roleLabel)
         {
-            if (target == null)
-            {
-                Debug.LogError($"[Interview] Cannot send {roleLabel} prompt: target character is null.");
-                yield break;
-            }
+            if (target == null) yield break;
 
             ConvaiManager manager = ConvaiManager.ActiveManager;
-            if (manager == null || !manager.IsConnected)
-            {
-                Debug.LogError($"[Interview] Cannot send {roleLabel} prompt: ConvaiManager is not connected.");
-                yield break;
-            }
+            if (manager == null || !manager.IsConnected) yield break;
 
-            // 1. Ensure remote audio is enabled
             try
             {
-                if (!target.IsRemoteAudioEnabled)
-                {
-                    target.EnableRemoteAudio();
-                    Debug.Log($"[ConvaiDebug] Enabled remote audio for {target.CharacterName}.");
-                }
+                if (!target.IsRemoteAudioEnabled) target.EnableRemoteAudio();
             }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[ConvaiDebug] Remote audio enable warning on {target.CharacterName}: {ex.Message}");
-            }
+            catch { }
 
-            // 2. Ensure ConvaiPlayer is located
-            if (convaiPlayer == null)
-                convaiPlayer = FindAnyObjectByType<ConvaiPlayer>();
-
+            if (convaiPlayer == null) convaiPlayer = FindAnyObjectByType<ConvaiPlayer>();
             if (convaiPlayer == null)
             {
-                Debug.LogError($"[Interview] Cannot send {roleLabel} opening request: ConvaiPlayer not found in scene!");
+                Debug.LogError("[Interview] ConvaiPlayer not found in scene!");
                 yield break;
             }
 
-            // 3. Ensure conversation target is set to this character
             SafeSetConversationTarget(target);
-
-            // 4. Wait for conversation input availability
             yield return WaitForConversationInputAvailability(10f);
 
-            // 5. Send player-agent prompt via ConvaiPlayer.TrySendTextMessage
             bool sent = false;
             string reason = null;
             float retryTimeout = 10f;
@@ -1363,32 +1269,30 @@ namespace PrepVR.Interview
 
             while (!sent && elapsed < retryTimeout)
             {
-                sent = convaiPlayer.TrySendTextMessage(prompt, out reason);
-                if (sent)
+                if (manager.ConversationAvailability.CanAcceptPlayerInput())
                 {
-                    if (roleLabel == "HR")
+                    sent = convaiPlayer.TrySendTextMessage(prompt, out reason);
+                    if (sent)
                     {
-                        Debug.Log("[Interview] E. HR opening request sent");
+                        Debug.Log($"[Interview] Prompt request successfully delivered to Convai runtime: \"{prompt}\"");
+                        break;
                     }
-                    Debug.Log($"[Interview] {roleLabel} opening text request successfully delivered to Convai runtime.");
-                    Debug.Log("[Interview] Waiting for Convai response");
-                    break;
+                }
+                else
+                {
+                    reason = $"ConversationAvailability ({manager.ConversationAvailability}) not ready yet";
                 }
 
-                Debug.LogWarning($"[Interview] TrySendTextMessage for {roleLabel} refused ({reason}). Retrying in 0.5s...");
                 yield return new WaitForSeconds(0.5f);
                 elapsed += 0.5f;
             }
 
             if (!sent)
             {
-                Debug.LogError($"[Interview] Failed to send {roleLabel} opening request after {retryTimeout}s: {reason}");
+                Debug.LogError($"[Interview] Failed to send prompt after {retryTimeout}s: {reason}");
             }
         }
 
-        // ====================================================================
-        // Authoritative Readiness & Availability Helpers (Convai SDK 4.6.0)
-        // ====================================================================
         private bool IsCharacterAuthoritativelyReady(ConvaiCharacter character)
         {
             if (character == null) return false;
@@ -1423,11 +1327,7 @@ namespace PrepVR.Interview
 
         private IEnumerator WaitForAuthoritativeReadiness(ConvaiCharacter character, string label, float timeoutSeconds = 35f)
         {
-            if (character == null)
-            {
-                Debug.LogError($"[ConvaiDebug] Cannot wait for {label} readiness: ConvaiCharacter reference is null.");
-                yield break;
-            }
+            if (character == null) yield break;
 
             Debug.Log($"[ConvaiDebug] Awaiting authoritative readiness for {label} ({character.CharacterName} - {character.CharacterId})...");
             float elapsed = 0f;
@@ -1442,64 +1342,43 @@ namespace PrepVR.Interview
                 elapsed += 0.25f;
             }
 
-            if (IsCharacterAuthoritativelyReady(character))
+            if (!IsCharacterAuthoritativelyReady(character))
             {
-                Debug.Log($"[ConvaiDebug] {label} authoritatively ready after {elapsed:F2}s.");
-            }
-            else
-            {
-                Debug.LogError($"[ConvaiDebug] Timeout waiting for {label} readiness (waited {timeoutSeconds}s). State: IsCharacterReady={character.IsCharacterReady}, RoomMembershipStatus={character.RoomMembershipStatus}.");
+                Debug.LogError($"[ConvaiDebug] Timeout waiting for {label} readiness (waited {timeoutSeconds}s).");
             }
         }
 
         private IEnumerator WaitForConversationInputAvailability(float timeoutSeconds = 10f)
         {
             ConvaiManager manager = ConvaiManager.ActiveManager;
-            if (manager == null)
-            {
-                Debug.LogError("[ConvaiDebug] ConvaiManager is null while waiting for conversation input availability.");
-                yield break;
-            }
+            if (manager == null) yield break;
 
             yield return null;
 
-            if (manager.ConversationAvailability.CanAcceptPlayerInput())
-            {
-                Debug.Log($"[ConvaiDebug] ConversationAvailability immediately ready: {manager.ConversationAvailability} (Target: {manager.AddressedCharacter?.CharacterName})");
-                yield break;
-            }
-
-            Debug.Log($"[ConvaiDebug] Waiting for conversation availability to accept input (current: {manager.ConversationAvailability}, Target: {manager.AddressedCharacter?.CharacterName})...");
+            if (manager.ConversationAvailability.CanAcceptPlayerInput()) yield break;
 
             float elapsed = 0f;
             while (elapsed < timeoutSeconds)
             {
-                if (manager.ConversationAvailability.CanAcceptPlayerInput())
-                {
-                    Debug.Log($"[ConvaiDebug] ConversationAvailability ready after {elapsed:F2}s: {manager.ConversationAvailability} (Target: {manager.AddressedCharacter?.CharacterName})");
-                    yield break;
-                }
-
+                if (manager.ConversationAvailability.CanAcceptPlayerInput()) yield break;
                 yield return null;
                 elapsed += Time.unscaledDeltaTime;
             }
 
-            Debug.LogError($"[ConvaiDebug] Timed out waiting for conversation availability ({timeoutSeconds}s). Current: {manager.ConversationAvailability}");
+            Debug.LogWarning($"[ConvaiDebug] Timed out waiting for conversation availability ({timeoutSeconds}s). Current: {manager.ConversationAvailability}");
         }
 
-        // ====================================================================
-        // Transcript event handlers
-        // ====================================================================
         private bool MatchesCharacter(string charId, string speaker, ConvaiCharacter target)
         {
             if (target == null) return false;
-            if (!string.IsNullOrEmpty(charId) && string.Equals(charId, target.CharacterId, StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(charId) && string.Equals(charId.Trim(), target.CharacterId?.Trim(), StringComparison.OrdinalIgnoreCase))
                 return true;
             if (!string.IsNullOrEmpty(speaker))
             {
-                if (!string.IsNullOrEmpty(target.CharacterName) && speaker.IndexOf(target.CharacterName, StringComparison.OrdinalIgnoreCase) >= 0)
+                string sTrim = speaker.Trim();
+                if (!string.IsNullOrEmpty(target.CharacterName) && sTrim.IndexOf(target.CharacterName.Trim(), StringComparison.OrdinalIgnoreCase) >= 0)
                     return true;
-                if (target.gameObject != null && target.gameObject.name.IndexOf(speaker, StringComparison.OrdinalIgnoreCase) >= 0)
+                if (target.gameObject != null && target.gameObject.name.Trim().IndexOf(sTrim, StringComparison.OrdinalIgnoreCase) >= 0)
                     return true;
             }
             return false;
@@ -1514,51 +1393,15 @@ namespace PrepVR.Interview
             string charId  = e.Message.PlayerOrCharacterId ?? "";
             if (string.IsNullOrWhiteSpace(text)) return;
 
-            // Only process transcripts from the character active in the current stage
-            switch (currentStage)
-            {
-                case HRInterviewStage.HRInterviewer:
-                    if (hrInterviewer != null && !MatchesCharacter(charId, speaker, hrInterviewer))
-                    {
-                        return;
-                    }
-                    break;
-                case HRInterviewStage.BehavioralInterviewer:
-                    if (behavioralInterviewer != null && !MatchesCharacter(charId, speaker, behavioralInterviewer))
-                    {
-                        return;
-                    }
-                    break;
-                case HRInterviewStage.HiringManager:
-                    if (hiringManager != null && !MatchesCharacter(charId, speaker, hiringManager))
-                    {
-                        return;
-                    }
-                    break;
-            }
-            ConvaiCharacter targetChar = null;
-            switch (currentStage)
-            {
-                case HRInterviewStage.HRInterviewer:
-                    targetChar = hrInterviewer;
-                    break;
-                case HRInterviewStage.BehavioralInterviewer:
-                    targetChar = behavioralInterviewer;
-                    break;
-                case HRInterviewStage.HiringManager:
-                    targetChar = hiringManager;
-                    break;
-            }
+            if (interviewer != null && !MatchesCharacter(charId, speaker, interviewer)) return;
 
             lastRecordedQuestion = text;
 
-            // Start turn monitoring if not already active
-            if (!isInterviewerSpeakingTurn && targetChar != null)
+            if (!isInterviewerSpeakingTurn && interviewer != null)
             {
-                StartInterviewerSpeakingTurn(targetChar, speaker);
+                StartInterviewerSpeakingTurn(interviewer, speaker);
             }
 
-            // Aggregate final sentence chunks into full question text
             if (e.Message.IsFinal)
             {
                 string chunk = text.Trim();
@@ -1566,7 +1409,7 @@ namespace PrepVR.Interview
                 if (!current.Contains(chunk))
                 {
                     currentTurnQuestionBuilder.Append(chunk + " ");
-                    Debug.Log($"[QUESTION] Streamed sentence chunk [{speaker}]: \"{chunk}\"");
+                    Debug.Log($"[QUESTION] Streamed sentence chunk: \"{chunk}\"");
                 }
             }
         }
@@ -1579,45 +1422,27 @@ namespace PrepVR.Interview
             if (string.IsNullOrWhiteSpace(text)) return;
 
             bool isFinal = e.Message.IsFinal || e.Phase != TranscriptionPhase.Interim;
-            if (!isFinal) return; // Do not record interim streaming fragments
+            if (!isFinal) return;
 
-            // Ignore system opening / transition / follow-up prompts echoed into player transcript
+            // Ignore system prompts echoed into player transcript
             if (text.StartsWith("[PROMPT]") ||
+                text.IndexOf("In your persona as the", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 text.IndexOf("The candidate explained:", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 text.IndexOf("The candidate answered:", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 text.IndexOf("The candidate introduced:", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("begin Stage", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("Please begin the interview", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 text.IndexOf("Welcome to the interview", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("tell me your name", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("Warmly welcome the candidate", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("Acknowledge the transition", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("Greet the candidate for this final stage", StringComparison.OrdinalIgnoreCase) >= 0)
+                text.IndexOf("tell me your name", StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                Debug.Log($"[ConvaiDebug] Ignored system opening/follow-up prompt from player transcript: \"{text}\"");
                 return;
             }
 
             Debug.Log("[STT] Candidate speech detected");
-            Debug.Log($"[STT] Transcript: \"{text}\"");
+            Debug.Log($"[STT] Transcript: \"{text}\" (Phase: {e.Phase}, Final: {isFinal}) at {AuthoritativeElapsedTime:F2}s");
 
-            // If interviewer turn was active but audio is done, complete interviewer turn now
             if (isInterviewerSpeakingTurn)
             {
-                ConvaiCharacter activeChar = GetActiveInterviewer();
-                AudioSource audioSrc = activeChar != null ? (activeChar.GetComponent<AudioSource>() ?? activeChar.GetComponentInChildren<AudioSource>()) : null;
-                bool isAudioPlaying = audioSrc != null && audioSrc.isPlaying;
-                bool isConvaiSpeaking = activeChar != null && activeChar.IsSpeaking;
-                if (!isAudioPlaying && !isConvaiSpeaking)
-                {
-                    if (turnCompletionCoroutine != null)
-                    {
-                        StopCoroutine(turnCompletionCoroutine);
-                        turnCompletionCoroutine = null;
-                    }
-                    isInterviewerSpeakingTurn = false;
-                    Debug.Log("[TURN] Interviewer finished");
-                    Debug.Log("[MIC] Candidate microphone ACTIVE");
-                }
+                CompleteInterviewerSpeakingTurn(interviewer, "Interviewer", "Candidate player transcript received");
             }
 
             string chunk = text.Trim();
@@ -1627,10 +1452,8 @@ namespace PrepVR.Interview
                 candidateAnswerBuffer.Append(chunk + " ");
             }
 
-            // Maintain CandidateSpeaking state while candidate speech is arriving
             currentTurnState = TurnState.CandidateSpeaking;
 
-            // Debounce processing so candidate can finish multi-sentence answers without interruption (0.85s pause)
             if (candidateAnswerDebounceCoroutine != null)
             {
                 StopCoroutine(candidateAnswerDebounceCoroutine);
@@ -1640,8 +1463,8 @@ namespace PrepVR.Interview
 
         private IEnumerator ProcessCandidateAnswerDebouncedCoroutine()
         {
-            // Wait 0.85 seconds of silence (down from 1.8s) to quickly capture full answers without sluggish delay
-            yield return new WaitForSeconds(0.85f);
+            // 1.4 seconds of silence to allow natural pause without cutting off complete thoughts
+            yield return new WaitForSeconds(1.4f);
 
             string fullAnswer = candidateAnswerBuffer.ToString().Trim();
             candidateAnswerBuffer.Clear();
@@ -1649,21 +1472,15 @@ namespace PrepVR.Interview
 
             if (string.IsNullOrWhiteSpace(fullAnswer)) yield break;
 
-            // Transition strictly to ProcessingAnswer state
             currentTurnState = TurnState.ProcessingAnswer;
-
-            // Immediately gate candidate microphone while processing answer
-            SetCandidateMicrophoneMuted(true);
-            Debug.Log("[MIC] Candidate finished speaking. Microphone GATED while interviewer processes answer.");
-
+            SetCandidateMicrophoneMuted(true, "Candidate finished speaking; processing answer");
             Debug.Log($"[ANSWER] Complete candidate answer received: \"{fullAnswer}\"");
-            Debug.Log($"[ANSWER]\nCandidate response:\n{fullAnswer}");
 
-            // Extract candidate name from spoken introduction if candidate introduces themselves
+            // Extract candidate name from spoken introduction if available
             if (PREPVRSessionManager.Instance != null)
             {
                 CandidateProfile prof = PREPVRSessionManager.Instance.Profile;
-                if (prof == null || string.IsNullOrWhiteSpace(prof.name) || prof.name == "Candidate" || prof.name.IndexOf("Swetha", StringComparison.OrdinalIgnoreCase) >= 0)
+                if (prof == null || string.IsNullOrWhiteSpace(prof.name) || prof.name == "Candidate")
                 {
                     string spokenName = TryExtractSpokenCandidateName(fullAnswer);
                     if (!string.IsNullOrEmpty(spokenName))
@@ -1674,32 +1491,20 @@ namespace PrepVR.Interview
                             PREPVRSessionManager.Instance.Profile = prof;
                         }
                         prof.name = spokenName;
-                        Debug.Log($"[CANDIDATE] Spoken candidate name captured from introduction: {spokenName}");
+                        Debug.Log($"[CANDIDATE] Spoken candidate name captured: {spokenName}");
                     }
                 }
             }
 
-            // Record candidate answer into previous Q&A context lists for cross-stage continuity
-            switch (currentStage)
-            {
-                case HRInterviewStage.HRInterviewer:
-                    hrCandidateAnswerCount++;
-                    hrTranscriptLines.Add($"Candidate: {fullAnswer}");
-                    Debug.Log($"[Interview] HR Candidate Answer #{hrCandidateAnswerCount} recorded.");
-                    break;
-                case HRInterviewStage.BehavioralInterviewer:
-                    behaviorCandidateAnswerCount++;
-                    behaviorTranscriptLines.Add($"Candidate: {fullAnswer}");
-                    Debug.Log($"[Interview] Technical Candidate Answer #{behaviorCandidateAnswerCount} recorded.");
-                    break;
-                case HRInterviewStage.HiringManager:
-                    hiringMgrCandidateAnswerCount++;
-                    Debug.Log($"[Interview] Hiring Manager Candidate Answer #{hiringMgrCandidateAnswerCount} recorded.");
-                    break;
-            }
+            totalCandidateAnswers++;
+            currentSectionAnswerCount++;
+            interviewTranscriptLines.Add($"Candidate: {fullAnswer}");
 
             if (PREPVRSessionManager.Instance != null)
+            {
                 PREPVRSessionManager.Instance.RecordTranscript("Candidate", fullAnswer, isQuestion: false);
+                PREPVRSessionManager.Instance.RecordQAResponse(lastRecordedQuestion, fullAnswer);
+            }
 
             if (InterviewVisualEvaluator.Instance != null)
             {
@@ -1707,236 +1512,224 @@ namespace PrepVR.Interview
                 InterviewVisualEvaluator.Instance.RecordAnswerStarted(now);
             }
 
-            // Injects candidate response into active interviewer DynamicContext
-            ConvaiCharacter activeChar = GetActiveInterviewer();
+            float elapsed = AuthoritativeElapsedTime;
+
+            // ---------------------------------------------------------------
+            // State-Specific Routing & Phase Transitions
+            // ---------------------------------------------------------------
+            if (currentState == InterviewState.FinalQuestion)
+            {
+                Debug.Log($"[INTERVIEW] Candidate completed response to final wrap-up question. Initiating closing conversation.");
+                StartCoroutine(InitiateClosingConversation());
+                yield break;
+            }
+
+            // Approaching 9:30 (570s): Transition to FinalQuestion state
+            if (elapsed >= SECTION_5_END_SECONDS || elapsed >= (TOTAL_INTERVIEW_SECONDS - 30f))
+            {
+                Debug.Log($"[INTERVIEW] 9:30 boundary reached ({elapsed:F1}s). Candidate completed answer. Initiating FinalQuestion phase.");
+                StartCoroutine(InitiateFinalQuestionPhase());
+                yield break;
+            }
+
+            // Update DynamicContext for current section guide
+            InterviewSection currentSec = currentSection;
+            if (elapsed >= SECTION_4_END_SECONDS) currentSec = InterviewSection.Behavioural_Situational;
+            else if (elapsed >= SECTION_3_END_SECONDS) currentSec = InterviewSection.Projects_Problem_Solving;
+            else if (elapsed >= SECTION_2_END_SECONDS) currentSec = InterviewSection.Resume_Technical_Skills;
+            else if (elapsed >= SECTION_1_END_SECONDS) currentSec = InterviewSection.Background_Education_HR;
+
+            SetSection(currentSec);
+            ApplySectionDynamicContext(currentSec);
+
+            // Construct tailored authoritative follow-up prompt based on the active section
             CandidateProfile profile = PREPVRSessionManager.Instance?.Profile;
             string primaryProject = GetPrimaryProject(profile);
             string primarySkills = GetPrimarySkills(profile);
-            string activeRole = GetCurrentStageRoleName();
+            string followUpPrompt = "";
 
-            try
+            switch (currentSec)
             {
-                if (activeChar?.DynamicContext != null)
-                {
-                    string currentCandName = profile?.name;
-                    var dynamicState = new Dictionary<string, string>
+                case InterviewSection.Welcome_Introduction:
+                case InterviewSection.Background_Education_HR:
+                    if (totalCandidateAnswers <= 1)
                     {
-                        { "candidate_last_answer", fullAnswer },
-                        { "follow_up_directive",
-                          $"The candidate just answered: \"{fullAnswer}\". " +
-                          "You must ask a direct, relevant FOLLOW-UP question probing the specific technical details, tools, technologies, architecture, or decisions they mentioned in this answer. " +
-                          "Do NOT switch to an unrelated generic question. Reference their answer directly. Ask ONE question and wait for the candidate." }
-                    };
-                    if (!string.IsNullOrWhiteSpace(currentCandName) && currentCandName.IndexOf("Swetha", StringComparison.OrdinalIgnoreCase) < 0)
-                    {
-                        dynamicState["candidate_name"] = currentCandName;
+                        followUpPrompt = isResumeFallbackActive
+                            ? $"The candidate just introduced themselves: \"{fullAnswer}\". In your persona as the lead interviewer, warmly acknowledge what they shared, welcome them, and ask your next question exploring their background, education, and interest in technology. Ask ONE clear question."
+                            : $"The candidate just introduced themselves: \"{fullAnswer}\". In your persona as the lead interviewer, warmly acknowledge what they shared, welcome them, and ask your next question exploring what motivated their technical projects such as {primaryProject} or their work with {primarySkills}. Ask ONE clear question.";
                     }
-                    activeChar.DynamicContext.SetStates(dynamicState, ConvaiRespondMode.Silent);
-                    activeChar.DynamicContext.Flush();
-                    Debug.Log($"[FOLLOW-UP]\nPrevious answer:\n{fullAnswer}");
-                    Debug.Log($"[AI] Context passed to interviewer with follow-up directive for candidate response.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[FOLLOW-UP] DynamicContext error: {ex.Message}");
+                    else
+                    {
+                        followUpPrompt = $"The candidate just answered: \"{fullAnswer}\". In your persona as the lead interviewer, directly acknowledge what they explained, and ask a relevant follow-up question probing what they just shared regarding their technical education, motivations, or career aspirations. Ask ONE clear question.";
+                    }
+                    break;
+
+                case InterviewSection.Resume_Technical_Skills:
+                    if (currentSectionAnswerCount <= 1)
+                    {
+                        followUpPrompt = isResumeFallbackActive
+                            ? $"The candidate just answered: \"{fullAnswer}\". In your persona as the lead interviewer, directly acknowledge their response, and ask an in-depth technical follow-up question probing how they design system architectures and structure modular code. Ask ONE clear question."
+                            : $"The candidate just answered: \"{fullAnswer}\". In your persona as the lead interviewer, directly acknowledge what they explained, and ask an in-depth technical follow-up question probing the architecture, data flow, or choice of technology stack in {primaryProject} using {primarySkills}. Ask ONE clear question.";
+                    }
+                    else
+                    {
+                        followUpPrompt = isResumeFallbackActive
+                            ? $"The candidate just answered: \"{fullAnswer}\". In your persona as the lead interviewer, directly acknowledge what they explained, and ask a technical follow-up question about API design, caching, data persistence, and error handling. Ask ONE clear question."
+                            : $"The candidate just answered: \"{fullAnswer}\". In your persona as the lead interviewer, directly acknowledge what they explained, and ask a technical follow-up question probing how they handled database schema design, API integration, or system performance in {primaryProject}. Ask ONE clear question.";
+                    }
+                    break;
+
+                case InterviewSection.Projects_Problem_Solving:
+                    if (currentSectionAnswerCount <= 1)
+                    {
+                        followUpPrompt = isResumeFallbackActive
+                            ? $"The candidate just answered: \"{fullAnswer}\". In your persona as the lead interviewer, directly acknowledge their answer, and ask them to describe the most challenging technical bug or architectural obstacle they faced and how they diagnosed it. Ask ONE clear question."
+                            : $"The candidate just answered: \"{fullAnswer}\". In your persona as the lead interviewer, directly acknowledge their answer, and ask an in-depth problem-solving question about a difficult technical challenge, edge case, or trade-off they resolved while building {primaryProject}. Ask ONE clear question.";
+                    }
+                    else
+                    {
+                        followUpPrompt = $"The candidate just answered: \"{fullAnswer}\". In your persona as the lead interviewer, directly acknowledge their answer, and ask a relevant follow-up question probing their specific personal contributions, debugging methodology, and what they learned from that challenge. Ask ONE clear question.";
+                    }
+                    break;
+
+                case InterviewSection.Behavioural_Situational:
+                default:
+                    if (currentSectionAnswerCount <= 1)
+                    {
+                        followUpPrompt = $"The candidate just answered: \"{fullAnswer}\". In your persona as the lead interviewer, directly acknowledge what they explained, and ask a behavioural STAR question about a time they had to collaborate with a difficult team member or resolve a disagreement on technical direction. Ask ONE clear question.";
+                    }
+                    else
+                    {
+                        followUpPrompt = $"The candidate just answered: \"{fullAnswer}\". In your persona as the lead interviewer, directly acknowledge their response, and ask a situational question about managing tight deadlines, handling shifting requirements, or taking accountability when a technical issue occurred. Ask ONE clear question.";
+                    }
+                    break;
             }
 
-            float elapsed = AuthoritativeElapsedTime;
-
-            // 1. Soft Timer Limit Reached: Candidate completed their answer -> Transition to ClosingStatement
-            if (isTimeLimitReached || elapsed >= TOTAL_INTERVIEW_SECONDS || (currentStage == HRInterviewStage.HiringManager && elapsed >= (STAGE_2_END_SECONDS + 120f)))
+            if (interviewer != null)
             {
-                Debug.Log($"[INTERVIEW] Total duration reached ({elapsed:F1}s). Candidate completed answer. Delivering final closing statement.");
-                currentTurnState = TurnState.ClosingSpeaking;
-                string closingPrompt = $"[PROMPT] The candidate just completed their response: \"{fullAnswer}\". The interview session duration is now complete. As the {activeRole}, deliver your final closing statement: thank the candidate for their time, acknowledge their responses, state that the evaluation team will review their interview and be in touch soon, and warmly wish them the best. Say your closing statement now.";
-                if (activeChar != null)
-                {
-                    Debug.Log($"[Interview] Dispatching closing prompt to {activeRole} ({activeChar.CharacterName}): \"{closingPrompt}\"");
-                    StartCoroutine(SendPlayerAgentPrompt(activeChar, closingPrompt, activeRole));
-                }
-                else
-                {
-                    HandleInterviewCompleted();
-                }
+                Debug.Log($"[CONVAI] Dispatching tailored follow-up prompt for Section {currentSec} (Answer #{totalCandidateAnswers})");
+                StartCoroutine(SendPlayerAgentPrompt(interviewer, followUpPrompt, "Interviewer"));
+            }
+        }
+
+        private IEnumerator InitiateFinalQuestionPhase()
+        {
+            if (currentState == InterviewState.FinalQuestion ||
+                currentState == InterviewState.ClosingConversation ||
+                currentState == InterviewState.WaitingForClosingAudio ||
+                currentState == InterviewState.InterviewCompleted)
+            {
                 yield break;
             }
 
-            // 2. Stage 1 (HR) boundary reached: Candidate completed their answer -> Trigger HR handoff statement
-            if (currentStage == HRInterviewStage.HRInterviewer && elapsed >= STAGE_1_END_SECONDS)
+            SetState(InterviewState.FinalQuestion);
+            SetSection(InterviewSection.Final_Question_Closing);
+            ApplySectionDynamicContext(InterviewSection.Final_Question_Closing);
+
+            string finalQuestionPrompt =
+                "[PROMPT] We are at 9 minutes and 30 seconds into the interview. " +
+                "As the interviewer, begin wrapping up smoothly. Say: " +
+                "\"We are approaching the end of our scheduled interview time today. Do you have anything important you would like to add, or any final questions for me before we conclude?\"";
+
+            if (interviewer != null)
             {
-                Debug.Log($"[INTERVIEW] Stage 1 HR boundary reached ({elapsed:F1}s). Candidate completed answer. Triggering HR handoff statement.");
-                currentTurnState = TurnState.HandoffSpeaking;
-                string handoffPrompt = $"[PROMPT] The candidate just answered: \"{fullAnswer}\". Stage 1 is now complete. As the HR Interviewer, briefly thank the candidate and say: \"Thank you for sharing that. I will now pass you on to our Technical Interviewer.\"";
-                if (activeChar != null)
-                {
-                    Debug.Log($"[Interview] Dispatching HR handoff prompt ({activeChar.CharacterName}): \"{handoffPrompt}\"");
-                    StartCoroutine(SendPlayerAgentPrompt(activeChar, handoffPrompt, activeRole));
-                }
+                Debug.Log("[INTERVIEW] Dispatching Final Question to interviewer.");
+                yield return StartCoroutine(SendPlayerAgentPrompt(interviewer, finalQuestionPrompt, "Interviewer"));
+            }
+        }
+
+        private IEnumerator InitiateClosingConversation()
+        {
+            if (currentState == InterviewState.ClosingConversation ||
+                currentState == InterviewState.WaitingForClosingAudio ||
+                currentState == InterviewState.InterviewCompleted)
+            {
                 yield break;
             }
 
-            // 3. Stage 2 (Technical) boundary reached: Candidate completed their answer -> Trigger Technical handoff statement
-            if (currentStage == HRInterviewStage.BehavioralInterviewer && elapsed >= STAGE_2_END_SECONDS)
-            {
-                Debug.Log($"[INTERVIEW] Stage 2 Technical boundary reached ({elapsed:F1}s). Candidate completed answer. Triggering Technical handoff statement.");
-                currentTurnState = TurnState.HandoffSpeaking;
-                string handoffPrompt = $"[PROMPT] The candidate just answered: \"{fullAnswer}\". Technical Stage 2 is now complete. As the Technical Interviewer, briefly thank the candidate and say: \"Thank you for explaining your technical implementation. I will now pass you on to our Hiring Manager.\"";
-                if (activeChar != null)
-                {
-                    Debug.Log($"[Interview] Dispatching Technical handoff prompt ({activeChar.CharacterName}): \"{handoffPrompt}\"");
-                    StartCoroutine(SendPlayerAgentPrompt(activeChar, handoffPrompt, activeRole));
-                }
-                yield break;
-            }
+            SetState(InterviewState.ClosingConversation);
+            currentTurnState = TurnState.ClosingSpeaking;
 
-            // 4. Construct tailored authoritative follow-up prompt and dispatch via SendPlayerAgentPrompt
-            string followUpPrompt;
-            if (currentStage == HRInterviewStage.HRInterviewer)
+            CandidateProfile profile = PREPVRSessionManager.Instance?.Profile;
+            string candName = !string.IsNullOrWhiteSpace(profile?.name) ? profile.name : "there";
+
+            string closingPrompt =
+                $"[PROMPT] The interview has reached its scheduled conclusion. " +
+                "Deliver your final warm, professional closing statement now: " +
+                "\"Thank you for taking the time to speak with me today. It was great learning about your background, skills and experiences. That brings us to the end of our interview. We appreciate your participation, and your interview feedback will be available shortly. Have a wonderful day!\"";
+
+            if (interviewer != null)
             {
-                if (hrCandidateAnswerCount <= 1)
-                {
-                    followUpPrompt = $"[PROMPT] The candidate just introduced themselves: \"{fullAnswer}\". As the HR Interviewer, acknowledge their introduction, and ask your next question specifically about their project {primaryProject} or background in {primarySkills}. Ask ONE question.";
-                }
-                else
-                {
-                    followUpPrompt = $"[PROMPT] The candidate explained: \"{fullAnswer}\". As the HR Interviewer, acknowledge what they said, and ask a relevant follow-up question probing what they just shared regarding their experience or projects. Ask ONE question.";
-                }
-            }
-            else if (currentStage == HRInterviewStage.BehavioralInterviewer)
-            {
-                followUpPrompt = $"[PROMPT] The candidate answered: \"{fullAnswer}\". As the Technical Interviewer, acknowledge what they just explained, and ask an in-depth technical follow-up question directly probing their implementation, design decisions, or technologies regarding {primaryProject}. Ask ONE question.";
+                Debug.Log("[INTERVIEW] Dispatching professional closing statement to interviewer.");
+                yield return StartCoroutine(SendPlayerAgentPrompt(interviewer, closingPrompt, "Interviewer"));
             }
             else
             {
-                followUpPrompt = $"[PROMPT] The candidate answered: \"{fullAnswer}\". As the Hiring Manager, acknowledge what they explained, and ask a follow-up question probing their ownership, teamwork, leadership initiative, or problem-solving regarding {primaryProject}. Ask ONE question.";
-            }
-
-            if (activeChar != null)
-            {
-                Debug.Log($"[CONVAI] Sending candidate answer to {activeRole}");
-                Debug.Log($"[Interview] Dispatching follow-up prompt to {activeRole} ({activeChar.CharacterName}): \"{followUpPrompt}\"");
-                StartCoroutine(SendPlayerAgentPrompt(activeChar, followUpPrompt, activeRole));
+                StartCoroutine(WaitForClosingAudioAndCompleteCoroutine());
             }
         }
 
-        private string TryExtractSpokenCandidateName(string speech)
+        private IEnumerator WaitForClosingAudioAndCompleteCoroutine()
         {
-            if (string.IsNullOrWhiteSpace(speech)) return null;
+            SetState(InterviewState.WaitingForClosingAudio);
+            Debug.Log("[INTERVIEW] State: WaitingForClosingAudio. Allowing final closing audio to finish playing completely without interruption.");
 
-            var match = System.Text.RegularExpressions.Regex.Match(
-                speech,
-                @"(?:my name is|i am|i'm|this is)\s+([A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*)?)",
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-
-            if (match.Success && match.Groups.Count > 1)
+            // Wait for audio to actually begin if it hasn't yet
+            float waitToStart = 0f;
+            while (!isInterviewerSpeakingTurn && waitToStart < 6f)
             {
-                string extracted = match.Groups[1].Value.Trim();
-                string[] ignoreWords = { "a", "an", "the", "here", "ready", "excited", "glad", "speaking", "going", "answering", "not", "just", "so" };
-                foreach (string w in ignoreWords)
+                yield return new WaitForSeconds(0.2f);
+                waitToStart += 0.2f;
+            }
+
+            // Monitor until the closing audio finishes completely
+            float maxClosingWait = 35f;
+            float elapsed = 0f;
+            while (elapsed < maxClosingWait)
+            {
+                yield return new WaitForSeconds(0.3f);
+                elapsed += 0.3f;
+
+                bool isSpeaking = interviewer != null && interviewer.IsSpeaking;
+                AudioSource audio = interviewer?.GetComponentInChildren<AudioSource>();
+                bool isAudioPlaying = audio != null && audio.isPlaying;
+
+                if (!isInterviewerSpeakingTurn && !isSpeaking && !isAudioPlaying)
                 {
-                    if (string.Equals(extracted, w, StringComparison.OrdinalIgnoreCase))
-                        return null;
-                }
-                if (extracted.Length >= 2)
-                {
-                    return extracted;
+                    Debug.Log($"[INTERVIEW] Confirmed closing speech audio finished completely after {elapsed:F1}s.");
+                    break;
                 }
             }
-            return null;
-        }
 
-        // ====================================================================
-        // Stage transition detection
-        // ====================================================================
-        private void CheckHRStageTransition(string text)
-        {
-            if (isTransitioningStage || currentStage != HRInterviewStage.HRInterviewer) return;
+            // Extra safety buffer (1.2s) so the last syllable naturally completes and mouth pose resets
+            yield return new WaitForSeconds(1.2f);
+            interviewer?.GetComponent<InterviewAvatarMouthController>()?.EnforceNeutralMouthPoseImmediate();
 
-            bool phraseHandoff =
-                text.IndexOf("Behavioral Interviewer", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("pass you on",              StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("hand you over",            StringComparison.OrdinalIgnoreCase) >= 0;
-
-            if (phraseHandoff && AuthoritativeElapsedTime >= 180f)
-            {
-                Debug.Log($"[Interview] HR handoff phrase detected near stage boundary ({AuthoritativeElapsedTime:F1}s). Transitioning to Stage 2.");
-                StartCoroutine(BeginStage_BehavioralInterviewer());
-            }
-        }
-
-        private void CheckBehavioralStageTransition(string text)
-        {
-            if (isTransitioningStage || currentStage != HRInterviewStage.BehavioralInterviewer) return;
-
-            bool phraseHandoff =
-                text.IndexOf("Hiring Manager", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("pass you on",    StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("hand you over",  StringComparison.OrdinalIgnoreCase) >= 0;
-
-            if (phraseHandoff && AuthoritativeElapsedTime >= 380f)
-            {
-                Debug.Log($"[Interview] Behavioral handoff phrase detected near stage boundary ({AuthoritativeElapsedTime:F1}s). Transitioning to Stage 3.");
-                StartCoroutine(BeginStage_HiringManager());
-            }
-        }
-
-        private void CheckHiringManagerStageTransition(string text)
-        {
-            if (isTransitioningStage || currentStage != HRInterviewStage.HiringManager) return;
-
-            bool closingPhrase =
-                text.IndexOf("conclude",              StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("thank you for your",    StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("that wraps up",         StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("end of the interview",  StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("evaluation team will",  StringComparison.OrdinalIgnoreCase) >= 0;
-
-            if (closingPhrase && AuthoritativeElapsedTime >= 580f)
-            {
-                Debug.Log($"[Interview] Hiring Manager closing detected near 600s boundary ({AuthoritativeElapsedTime:F1}s). Concluding.");
-                HandleInterviewCompleted();
-            }
-        }
-
-        private void CheckCountFallbackTransitions()
-        {
-            // Governed authoritatively by the 600-second interview clock in Update().
-        }
-
-        // ====================================================================
-        // Interview completed
-        // ====================================================================
-        private void HandleInterviewCompleted()
-        {
-            if (!interviewActive) return;
-            StartCoroutine(ConcludeInterviewCoroutine());
+            // Transition to InterviewCompleted
+            yield return StartCoroutine(ConcludeInterviewCoroutine());
         }
 
         private IEnumerator ConcludeInterviewCoroutine()
         {
-            if (currentStage == HRInterviewStage.InterviewCompleted) yield break;
+            if (currentState == InterviewState.InterviewCompleted) yield break;
+            SetState(InterviewState.InterviewCompleted);
+            currentTurnState = TurnState.Concluding;
             isTransitioningStage = true;
 
-            Debug.Log("[Interview] === CONCLUDING 10-MINUTE INTERVIEW AT 600 SECONDS ===");
-
-            // 1. Cancel pending candidate response
-            InterviewAutomatedTester.Instance?.CancelPendingResponse();
-
-            // 2. Stop audio on all interviewers immediately
-            StopAllInterviewerAudio();
+            Debug.Log("[Interview] === CONCLUDING 10-MINUTE INTERVIEW. ALL SPEECH COMPLETE. ===");
 
             interviewActive = false;
-            currentStage    = HRInterviewStage.InterviewCompleted;
 
-            Debug.Log("[Interview] Interview session concluded. Generating feedback...");
+            // Stop audio and ensure neutral mouth pose
+            StopInterviewerAudio();
 
             if (InterviewVisualEvaluator.Instance != null)
                 InterviewVisualEvaluator.Instance.FinalizeObservations();
 
+            // Generate comprehensive final feedback from actual interview responses
             GenerateFinalFeedback();
 
-            // Automatically dispatch real interview result to Centralized Placement Backend
+            // Dispatch interview result to Centralized Placement Backend
             try
             {
                 if (PlacementBackendClient.Instance != null && PREPVRSessionManager.Instance != null && PREPVRSessionManager.Instance.feedbackData != null)
@@ -1962,60 +1755,60 @@ namespace PrepVR.Interview
             if (PREPVRSessionManager.Instance != null)
                 PREPVRSessionManager.Instance.MarkInterviewComplete();
 
-            try { hrInterviewer?.StopConversationAsync(); }         catch { }
-            try { behavioralInterviewer?.StopConversationAsync(); } catch { }
-            try { hiringManager?.StopConversationAsync(); }         catch { }
+            // Stop Convai conversation cleanly
+            try { interviewer?.StopConversationAsync(); } catch { }
 
-            // Allow Convai cleanup and unpublish tasks to complete cleanly before scene unload
+            // Disconnect Convai room cleanly
+            try
+            {
+                ConvaiManager mgr = ConvaiManager.ActiveManager;
+                if (mgr != null && mgr.IsConnected)
+                {
+                    Debug.Log("[Interview] Cleanly disconnecting Convai room...");
+                    mgr.DisconnectAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"[Interview] Note during Convai disconnect: {ex.Message}");
+            }
+
             yield return new WaitForSeconds(1.5f);
 
             Debug.Log($"[Interview] Transitioning to {NEXT_SCENE_NAME}.");
             SceneManager.LoadScene(NEXT_SCENE_NAME);
         }
 
-        private void StopAllInterviewerAudio()
+        private void StopInterviewerAudio()
         {
-            StopCharacterAudio(hrInterviewer);
-            StopCharacterAudio(behavioralInterviewer);
-            StopCharacterAudio(hiringManager);
-        }
-
-        private void StopCharacterAudio(ConvaiCharacter character)
-        {
-            if (character == null) return;
+            if (interviewer == null) return;
             try
             {
-                AudioSource audio = character.GetComponentInChildren<AudioSource>();
+                AudioSource audio = interviewer.GetComponentInChildren<AudioSource>();
                 if (audio != null && audio.isPlaying)
                 {
                     audio.Stop();
-                    Debug.Log($"[Interview] Stopped audio playback for {character.CharacterName}.");
                 }
+                interviewer.GetComponent<InterviewAvatarMouthController>()?.EnforceNeutralMouthPoseImmediate();
             }
-            catch (Exception ex)
-            {
-                Debug.LogWarning($"[Interview] Note stopping audio for {character.CharacterName}: {ex.Message}");
-            }
+            catch { }
         }
 
         private void GenerateFinalFeedback()
         {
             if (PREPVRSessionManager.Instance == null) return;
 
-            CandidateProfile        profile    = PREPVRSessionManager.Instance.Profile;
+            CandidateProfile profile = PREPVRSessionManager.Instance.Profile;
             InterviewTranscriptData transcript = PREPVRSessionManager.Instance.transcript;
-            VisualObservationsData  visual     = PREPVRSessionManager.Instance.visualObservations;
-            float                   duration   = PREPVRSessionManager.Instance.InterviewDurationSeconds;
+            VisualObservationsData visual = PREPVRSessionManager.Instance.visualObservations;
+            float duration = PREPVRSessionManager.Instance.InterviewDurationSeconds;
 
             FeedbackData fb = FeedbackEngine.GenerateFeedback(profile, transcript, visual, duration);
             PREPVRSessionManager.Instance.feedbackData = fb;
 
-            Debug.Log($"[Interview] Feedback for {fb.candidateName}. Readiness: {fb.overallReadinessLevel}");
+            Debug.Log($"[Interview] Feedback for {fb.candidateName} generated successfully. Readiness Level: {fb.overallReadinessLevel}");
         }
 
-        // ====================================================================
-        // Setup helpers
-        // ====================================================================
         private void SetupTimer()
         {
             InterviewTimerManager timer = FindAnyObjectByType<InterviewTimerManager>();
@@ -2026,27 +1819,15 @@ namespace PrepVR.Interview
 
         private void HandleTimerExpiredSoftBoundary()
         {
-            isTimeLimitReached = true;
-            Debug.Log("[INTERVIEW] Timer expired event received. Treating as soft scheduling boundary: allowing active speaker/turn to finish naturally.");
+            Debug.Log("[INTERVIEW] Timer expired event received (10m reached). Permitting active conversation turn and closing statement to complete gracefully.");
 
-            // If completely idle with no active exchange, trigger graceful closing statement
             if (!isInterviewerSpeakingTurn && !IsAnyInterviewerSpeaking() && !IsCandidateSpeakingOrTurnActive &&
-                currentTurnState != TurnState.HandoffSpeaking && currentTurnState != TurnState.ClosingSpeaking &&
-                candidateAnswerBuffer.Length == 0 && candidateAnswerDebounceCoroutine == null)
+                currentState != InterviewState.ClosingConversation &&
+                currentState != InterviewState.WaitingForClosingAudio &&
+                currentState != InterviewState.InterviewCompleted)
             {
-                Debug.Log("[INTERVIEW] No conversation turn active at timer expiration. Initiating graceful closing statement.");
-                ConvaiCharacter activeChar = GetActiveInterviewer();
-                string activeRole = GetCurrentStageRoleName();
-                currentTurnState = TurnState.ClosingSpeaking;
-                string closingPrompt = $"[PROMPT] The scheduled interview duration is now complete. As the {activeRole}, deliver your final closing statement: thank the candidate for their time today, state that the panel has all the information needed, and conclude the interview. Do not ask another question.";
-                if (activeChar != null)
-                {
-                    StartCoroutine(SendPlayerAgentPrompt(activeChar, closingPrompt, activeRole));
-                }
-                else
-                {
-                    HandleInterviewCompleted();
-                }
+                Debug.Log("[INTERVIEW] No conversation turn active at timer expiration. Initiating closing conversation.");
+                StartCoroutine(InitiateClosingConversation());
             }
         }
 
@@ -2075,8 +1856,8 @@ namespace PrepVR.Interview
                 evaluator = new GameObject("InterviewVisualEvaluator").AddComponent<InterviewVisualEvaluator>();
             evaluator.Initialize(
                 Camera.main != null ? Camera.main.transform : FindAnyObjectByType<ConvaiPlayer>()?.transform,
-                hrInterviewer != null ? hrInterviewer.transform : null,
-                hiringManager != null ? hiringManager.transform : null
+                interviewer != null ? interviewer.transform : null,
+                null
             );
         }
 
@@ -2092,32 +1873,18 @@ namespace PrepVR.Interview
             var sb = new StringBuilder();
             sb.Append($"Candidate: {p.name ?? "Candidate"}. ");
             sb.Append($"Education: {p.education ?? "Not specified"}. ");
-            if (p.skills?.Count     > 0) sb.Append($"Skills: {string.Join(", ", p.skills)}. ");
+            if (p.skills?.Count > 0) sb.Append($"Skills: {string.Join(", ", p.skills)}. ");
             if (p.experience?.Count > 0) sb.Append($"Experience: {string.Join(" | ", p.experience)}. ");
-            if (p.projects?.Count   > 0)
+            if (p.projects?.Count > 0)
             {
                 sb.Append("Projects: ");
                 for (int i = 0; i < p.projects.Count; i++) sb.Append($"[{i + 1}] {p.projects[i]}; ");
             }
             if (p.certifications?.Count > 0) sb.Append($"Certifications: {string.Join(", ", p.certifications)}. ");
-            if (p.achievements?.Count   > 0) sb.Append($"Achievements: {string.Join(", ", p.achievements)}. ");
+            if (p.achievements?.Count > 0) sb.Append($"Achievements: {string.Join(", ", p.achievements)}. ");
             return sb.ToString();
         }
 
-        private string BuildStageSummary(List<string> lines, string stageName)
-        {
-            if (lines == null || lines.Count == 0)
-                return $"[{stageName} had no recorded conversation]";
-            int start = Math.Max(0, lines.Count - 20);
-            var sb = new StringBuilder();
-            sb.AppendLine($"--- {stageName} Transcript ---");
-            for (int i = start; i < lines.Count; i++) sb.AppendLine(lines[i]);
-            return sb.ToString();
-        }
-
-        // ====================================================================
-        // Convai event subscription
-        // ====================================================================
         private void SubscribeConvaiEvents()
         {
             ConvaiManager manager = ConvaiManager.ActiveManager;
@@ -2136,7 +1903,7 @@ namespace PrepVR.Interview
                 manager.Events.OnLlmNoResponseReceived       += HandleLlmNoResponse;
                 manager.Events.OnPipelineError               += HandlePipelineError;
                 manager.Events.OnVadSttStateChanged          += HandleVadSttStateChanged;
-                Debug.Log("[ConvaiDebug] Subscribed to ConvaiManager events (transcripts, player speaking, speech state, turn completed, VAD, errors).");
+                Debug.Log("[ConvaiDebug] Subscribed to ConvaiManager events for single interviewer.");
             }
             catch (Exception ex)
             {
@@ -2162,6 +1929,7 @@ namespace PrepVR.Interview
                 }
                 catch { }
             }
+            UnwireCharacterDebugEvents(interviewer);
         }
 
         private void HandlePlayerSpeakingStateChanged(PlayerSpeakingStateChanged e)
@@ -2176,32 +1944,10 @@ namespace PrepVR.Interview
                 {
                     currentTurnState = TurnState.CandidateSpeaking;
                 }
-                else if (currentTurnState == TurnState.InterviewerSpeaking)
+                else if (currentTurnState == TurnState.InterviewerSpeaking || isInterviewerSpeakingTurn)
                 {
-                    ConvaiCharacter activeChar = GetActiveInterviewer();
-                    AudioSource audioSrc = activeChar != null ? (activeChar.GetComponent<AudioSource>() ?? activeChar.GetComponentInChildren<AudioSource>()) : null;
-                    bool isAudioPlaying = audioSrc != null && audioSrc.isPlaying;
-                    bool isConvaiSpeaking = activeChar != null && activeChar.IsSpeaking;
-
-                    if (!isAudioPlaying && !isConvaiSpeaking)
-                    {
-                        if (turnCompletionCoroutine != null)
-                        {
-                            StopCoroutine(turnCompletionCoroutine);
-                            turnCompletionCoroutine = null;
-                        }
-                        isInterviewerSpeakingTurn = false;
-                        Debug.Log("[TURN] Interviewer finished");
-                        Debug.Log("[MIC] Candidate microphone ACTIVE");
-                        currentTurnState = TurnState.CandidateSpeaking;
-                    }
-                }
-            }
-            else
-            {
-                if (currentTurnState == TurnState.CandidateSpeaking)
-                {
-                    Debug.Log("[ConvaiDebug] Candidate speech paused (IsSpeaking=false). Debounce will finalize complete answer.");
+                    CompleteInterviewerSpeakingTurn(interviewer, "Interviewer", "PlayerSpeakingStateChanged(IsSpeaking=true)");
+                    currentTurnState = TurnState.CandidateSpeaking;
                 }
             }
         }
@@ -2209,42 +1955,26 @@ namespace PrepVR.Interview
         private void HandleCharacterTurnCompleted(CharacterTurnCompleted e)
         {
             if (!interviewActive) return;
-            Debug.Log($"[AUDIO] Character turn completed: characterId={e.CharacterId}, wasInterrupted={e.WasInterrupted}");
-            if (activeTurnCharacter != null && MatchesCharacter(e.CharacterId, string.Empty, activeTurnCharacter))
-            {
-                characterTurnCompletedReceived = true;
-            }
+            Debug.Log($"[AUDIO] Character turn completed: characterId={e.CharacterId}, wasInterrupted={e.WasInterrupted} at {AuthoritativeElapsedTime:F2}s");
+            OnInterviewerTurnCompleted(interviewer, "Interviewer", e.WasInterrupted, "manager.Events.OnCharacterTurnCompleted");
         }
 
         private void HandleSpeechStateChanged(CharacterSpeechStateChanged e)
         {
-            Debug.Log($"[ConvaiDebug] Character speech state: characterId={e.CharacterId}, isSpeaking={e.IsSpeaking}, utteranceId={e.UtteranceId}");
+            Debug.Log($"[ConvaiDebug] Character speech state: characterId={e.CharacterId}, isSpeaking={e.IsSpeaking} at {AuthoritativeElapsedTime:F2}s");
+
             if (e.IsSpeaking)
             {
-                string roleName = "Unknown";
-                ConvaiCharacter speakingChar = null;
-                if (hrInterviewer != null && (e.CharacterId == hrInterviewer.CharacterId || e.CharacterId == HR_CHARACTER_ID_SCENE || e.CharacterId == HR_CHARACTER_ID_ACCOUNT || e.CharacterId == HR_CHARACTER_ID_LEGACY))
+                Debug.Log($"[AUDIO] Interviewer audio response received/started at {AuthoritativeElapsedTime:F2}s");
+                if (interviewer != null && !isInterviewerSpeakingTurn)
                 {
-                    roleName = "HR";
-                    speakingChar = hrInterviewer;
-                    Debug.Log("[Interview] H. HR audio received/started (SpeechStateChanged)");
+                    StartInterviewerSpeakingTurn(interviewer, "Interviewer");
                 }
-                else if (behavioralInterviewer != null && (e.CharacterId == behavioralInterviewer.CharacterId || e.CharacterId == BEHAVIORAL_ID_SCENE || e.CharacterId == BEHAVIORAL_ID_ACCOUNT || e.CharacterId == BEHAVIORAL_ID_LEGACY))
-                {
-                    roleName = "Technical";
-                    speakingChar = behavioralInterviewer;
-                }
-                else if (hiringManager != null && (e.CharacterId == hiringManager.CharacterId || e.CharacterId == HIRING_MGR_ID_SCENE || e.CharacterId == HIRING_MGR_ID_ACCOUNT || e.CharacterId == HIRING_MGR_ID_LEGACY))
-                {
-                    roleName = "Hiring Manager";
-                    speakingChar = hiringManager;
-                }
-
-                Debug.Log($"[AUDIO] Interviewer [{roleName}] audio response received/started (SpeechStateChanged)");
-                if (speakingChar != null && !isInterviewerSpeakingTurn)
-                {
-                    StartInterviewerSpeakingTurn(speakingChar, roleName);
-                }
+            }
+            else
+            {
+                Debug.Log($"[AUDIO] Interviewer stopped speaking at {AuthoritativeElapsedTime:F2}s");
+                OnInterviewerAudioStopped(interviewer, "Interviewer", "manager.Events.OnCharacterSpeechStateChanged(!IsSpeaking)");
             }
         }
 
@@ -2272,6 +2002,32 @@ namespace PrepVR.Interview
                 timeout -= 0.5f;
             }
             SubscribeConvaiEvents();
+        }
+
+        private string TryExtractSpokenCandidateName(string speech)
+        {
+            if (string.IsNullOrWhiteSpace(speech)) return null;
+
+            var match = System.Text.RegularExpressions.Regex.Match(
+                speech,
+                @"(?:my name is|i am|i'm|this is)\s+([A-Z][a-zA-Z]*(?:\s+[A-Z][a-zA-Z]*)?)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            if (match.Success && match.Groups.Count > 1)
+            {
+                string extracted = match.Groups[1].Value.Trim();
+                string[] ignoreWords = { "a", "an", "the", "here", "ready", "excited", "glad", "speaking", "going", "answering", "not", "just", "so" };
+                foreach (string w in ignoreWords)
+                {
+                    if (string.Equals(extracted, w, StringComparison.OrdinalIgnoreCase))
+                        return null;
+                }
+                if (extracted.Length >= 2)
+                {
+                    return extracted;
+                }
+            }
+            return null;
         }
     }
 }

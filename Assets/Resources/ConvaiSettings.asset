@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8ee72f77f95ef470ca9bda1cee186ec1, type: 3}
   m_Name: ConvaiSettings
   m_EditorClassIdentifier: Convai.Runtime::Convai.Runtime.ConvaiSettings
-  _apiKeyObfuscated: cnv1:JwsLR1NQTWcGFkRaXgRDGHFBXXIESxgpBldAEAUDEQ8=
+  _apiKeyObfuscated: cnv1:dw4MQlMKSjAAR0VfD18RTSdCX38ASh58VVETQlFSRFo=
   _apiKey: 
   _authMode: 0
   _authTokenEndpointUrl: 

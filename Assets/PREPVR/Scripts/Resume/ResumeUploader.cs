@@ -773,9 +773,8 @@ public class ResumeUploader : MonoBehaviour
         {
             if (obj == null || obj.name == null) continue;
 
-            if (obj.name.StartsWith("Technical Interviewer", StringComparison.Ordinal)
-                || obj.name.StartsWith("HR", StringComparison.Ordinal)
-                || obj.name.StartsWith("Behaviour analyst", StringComparison.Ordinal))
+            if (obj.name.StartsWith("HR", StringComparison.Ordinal)
+                || obj.name.StartsWith("Interviewer", StringComparison.Ordinal))
             {
                 obj.SetActive(visible);
             }

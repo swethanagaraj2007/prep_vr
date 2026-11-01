@@ -71,6 +71,7 @@ namespace PrepVR.Resume
         {
             EnsureURPCameraData();
             PREPVRSessionManager.EnsureInstance();
+            PREPVRSessionManager.Instance?.ResetSession();
             EnsureRollNumberField();
 
             if (browsePdfButton != null) browsePdfButton.onClick.AddListener(OnBrowsePdfClicked);

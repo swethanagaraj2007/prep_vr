@@ -70,17 +70,8 @@ namespace PrepVR.Interview
                 }
                 else
                 {
-                    // Fallback to sample report if exists, or basic report
-                    string samplePath = Path.Combine(Application.dataPath, "..", "Backend", "report_generation", "Sample_Placement_Report.pdf");
-                    if (File.Exists(samplePath))
-                    {
-                        File.Copy(samplePath, pdfPath, true);
-                        data.generatedPdfPath = pdfPath;
-                        onCompleted?.Invoke(pdfPath);
-                        return pdfPath;
-                    }
-
-                    onError?.Invoke("Failed to generate PDF via Python bridge.");
+                    UnityEngine.Debug.LogError("[FeedbackPdfGenerator] Python report generator failed to produce PDF.");
+                    onError?.Invoke("Failed to generate PDF report via Python bridge. Please check Python installation and ReportLab package.");
                     return null;
                 }
             }
@@ -184,6 +175,11 @@ namespace PrepVR.Interview
             public string interviewDurationFormatted;
             public string overallReadinessLevel;
             public string overallSummary;
+            public OverallRubricData rubric;
+            public SpeechAnalysisMetrics speechMetrics;
+            public List<QuestionFeedback> questionFeedbackList = new List<QuestionFeedback>();
+            public ResumeAlignmentData resumeAlignmentReport;
+            public List<ActionPlanItem> prioritizedActionPlan = new List<ActionPlanItem>();
             public List<EvaluationDto> evaluations = new List<EvaluationDto>();
             public List<string> strengths = new List<string>();
             public List<string> areasForImprovement = new List<string>();
@@ -202,6 +198,12 @@ namespace PrepVR.Interview
                 interviewDurationFormatted = data.interviewDurationFormatted;
                 overallReadinessLevel = data.overallReadinessLevel;
                 overallSummary = data.overallSummary;
+
+                rubric = data.rubric;
+                speechMetrics = data.speechMetrics;
+                if (data.questionFeedbackList != null) questionFeedbackList.AddRange(data.questionFeedbackList);
+                resumeAlignmentReport = data.resumeAlignmentReport;
+                if (data.prioritizedActionPlan != null) prioritizedActionPlan.AddRange(data.prioritizedActionPlan);
 
                 if (data.strengths != null) strengths.AddRange(data.strengths);
                 if (data.areasForImprovement != null) areasForImprovement.AddRange(data.areasForImprovement);

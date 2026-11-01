@@ -8,7 +8,7 @@ using Convai.Domain.DomainEvents.Transcript;
 namespace PrepVR.Interview
 {
     /// <summary>
-    /// Automated test runner to test and verify the 3-person panel interview in Play Mode.
+    /// Automated test runner to test and verify the Single Interviewer 10-Minute System in Play Mode.
     /// Responds ONLY when the interviewer has completely finished speaking the entire question.
     /// If a human speaks verbally via microphone, the automated response is immediately cancelled.
     /// </summary>
@@ -29,9 +29,7 @@ namespace PrepVR.Interview
         private Coroutine pendingResponseCoroutine;
         private bool isResponding = false;
         private string lastDeliveredAnswer = "";
-        private int hrTurn = 0;
-        private int technicalTurn = 0;
-        private int hiringMgrTurn = 0;
+        private int turnCount = 0;
 
         public static InterviewAutomatedTester Instance { get; private set; }
         public bool IsCandidateSpeakingOrScheduled => isResponding || pendingResponseCoroutine != null;
@@ -98,11 +96,7 @@ namespace PrepVR.Interview
             if (InterviewOrchestrator.Instance != null)
             {
                 InterviewOrchestrator.Instance.OnInterviewerQuestionFinished += HandleInterviewerQuestionFinished;
-                Debug.Log("[AutomatedTester] Successfully subscribed to InterviewOrchestrator.OnInterviewerQuestionFinished.");
-            }
-            else
-            {
-                Debug.LogWarning("[AutomatedTester] InterviewOrchestrator.Instance not found.");
+                Debug.Log("[AutomatedTester] Subscribed to InterviewOrchestrator.OnInterviewerQuestionFinished.");
             }
         }
 
@@ -110,65 +104,51 @@ namespace PrepVR.Interview
         {
             if (manager != null)
             {
-                try
-                {
-                    manager.Events.OnCharacterTranscriptReceived -= HandleInterviewerTranscript;
-                    manager.Events.OnPlayerTranscriptReceived    -= HandlePlayerTranscript;
-                }
-                catch { }
+                manager.Events.OnCharacterTranscriptReceived -= HandleInterviewerTranscript;
+                manager.Events.OnPlayerTranscriptReceived    -= HandlePlayerTranscript;
             }
 
             if (InterviewOrchestrator.Instance != null)
             {
-                try
-                {
-                    InterviewOrchestrator.Instance.OnInterviewerQuestionFinished -= HandleInterviewerQuestionFinished;
-                }
-                catch { }
+                InterviewOrchestrator.Instance.OnInterviewerQuestionFinished -= HandleInterviewerQuestionFinished;
             }
         }
 
         private void HandlePlayerTranscript(PlayerTranscriptReceived e)
         {
+            if (!testActive) return;
+
             string text = e.Message.Text ?? "";
-            if (string.IsNullOrWhiteSpace(text) || text.Trim().Length < 5) return;
+            if (string.IsNullOrWhiteSpace(text)) return;
 
-            // Ignore system opening / transition prompts echoed as player transcript
             if (text.IndexOf("begin Stage", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("Warmly welcome the candidate", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("Acknowledge the transition", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("Greet the candidate for this final stage", StringComparison.OrdinalIgnoreCase) >= 0)
+                text.IndexOf("The candidate explained:", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("The candidate answered:", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                text.IndexOf("Please begin the interview", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 return;
             }
 
-            // Ignore self-echoed candidate text delivered by this automated tester
-            if (!string.IsNullOrEmpty(lastDeliveredAnswer) &&
-                (text.IndexOf(lastDeliveredAnswer, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                 lastDeliveredAnswer.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0))
+            // If candidate spoke verbally via mic, cancel automated response
+            if (!string.IsNullOrEmpty(lastDeliveredAnswer) && text.Trim() != lastDeliveredAnswer.Trim())
             {
-                return;
-            }
-
-            // Human player spoke! Cancel any pending automated response.
-            if (pendingResponseCoroutine != null)
-            {
-                StopCoroutine(pendingResponseCoroutine);
-                pendingResponseCoroutine = null;
-                isResponding = false;
-                Debug.Log($"[AutomatedTester] Human speech detected (\"{text}\"). Canceled automated response timer.");
+                Debug.Log($"[AutomatedTester] Candidate spoke verbally via mic (\"{text}\"). Cancelling automated test response.");
+                CancelPendingResponse();
             }
         }
 
         private void HandleInterviewerTranscript(CharacterTranscriptReceived e)
         {
-            // Only log streaming transcript chunks; DO NOT schedule responses while interviewer is still speaking!
-            if (!testActive || !e.Message.IsFinal) return;
+            if (!testActive) return;
             string text = e.Message.Text ?? "";
             string speaker = e.Message.DisplayName ?? "Interviewer";
-            if (!string.IsNullOrWhiteSpace(text))
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            // If interviewer started speaking again while an automated response was scheduled, cancel it
+            if (pendingResponseCoroutine != null && !isResponding)
             {
-                Debug.Log($"[AutomatedTester] Streamed chunk [{speaker}]: \"{text}\"");
+                Debug.Log($"[AutomatedTester] Interviewer speech detected while response scheduled. Resetting schedule.");
+                CancelPendingResponse();
             }
         }
 
@@ -184,14 +164,13 @@ namespace PrepVR.Interview
 
             Debug.Log($"[AutomatedTester] Full Question Received from [{speaker}]: \"{fullQuestion}\"");
 
-            // Ignore stage handoff / concluding statements
-            if (fullQuestion.IndexOf("pass you on", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                fullQuestion.IndexOf("hand you over", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                fullQuestion.IndexOf("concludes our interview", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            // Ignore closing statements
+            if (fullQuestion.IndexOf("concludes our interview", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 fullQuestion.IndexOf("conclude our interview", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                fullQuestion.IndexOf("evaluation team will review", StringComparison.OrdinalIgnoreCase) >= 0)
+                fullQuestion.IndexOf("feedback will be available shortly", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                fullQuestion.IndexOf("Have a wonderful day", StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                Debug.Log("[AutomatedTester] Detected stage handoff phrase. Awaiting next stage.");
+                Debug.Log("[AutomatedTester] Detected closing statement. Interview concluding.");
                 return;
             }
 
@@ -199,66 +178,65 @@ namespace PrepVR.Interview
 
             CandidateProfile profile = PREPVRSessionManager.Instance?.Profile;
             string knownName = profile?.name;
-            string candGreeting = !string.IsNullOrWhiteSpace(knownName) && knownName != "Swetha N" ? knownName : "Candidate";
-            string primaryProj = profile?.projects != null && profile.projects.Count > 0 ? profile.projects[0] : "Software Engineering System Architecture";
+            string candGreeting = !string.IsNullOrWhiteSpace(knownName) && knownName != "Candidate" ? knownName : "Candidate";
+            string primaryProj = profile?.projects != null && profile.projects.Count > 0 ? profile.projects[0] : "Software Engineering Architecture";
             string secondaryProj = profile?.projects != null && profile.projects.Count > 1 ? profile.projects[1] : primaryProj;
             string skillsStr = profile?.skills != null && profile.skills.Count > 0 
                 ? string.Join(", ", profile.skills.GetRange(0, Math.Min(4, profile.skills.Count))) 
                 : "Python, C#, backend services, databases";
             string eduStr = !string.IsNullOrWhiteSpace(profile?.education) ? profile.education : "Computer Science and Engineering";
 
-            if (orchestrator.CurrentStage == HRInterviewStage.HRInterviewer ||
-                (speaker.IndexOf("HR", StringComparison.OrdinalIgnoreCase) >= 0 && orchestrator.CurrentStage == HRInterviewStage.NotStarted))
+            turnCount++;
+
+            if (orchestrator.CurrentState == InterviewState.FinalQuestion)
             {
-                hrTurn++;
-                if (hrTurn == 1)
-                {
-                    candidateAnswer = $"Thank you for having me today. My name is {candGreeting}. I completed my degree in {eduStr}. My core technical skills include {skillsStr}, and I've built projects including {primaryProj} and {secondaryProj}.";
-                }
-                else if (hrTurn == 2)
-                {
-                    candidateAnswer = $"In my academic and internship work, I have focused on building scalable services, containerizing applications with Docker, and collaborating via Git version control in agile sprints.";
-                }
-                else
-                {
-                    candidateAnswer = "I am passionate about software engineering and solving real-world problems with robust architectures, and I am excited about contributing to high-impact technical products.";
-                }
+                candidateAnswer = "I don't have anything further to add, but I want to thank you for the wonderful conversation today. It was great discussing my experience, technical projects, and background with you.";
             }
-            else if (orchestrator.CurrentStage == HRInterviewStage.BehavioralInterviewer)
+            else
             {
-                // Stage 2: Technical Interviewer
-                technicalTurn++;
-                if (technicalTurn == 1)
+                switch (orchestrator.CurrentSection)
                 {
-                    candidateAnswer = $"I developed the {primaryProj} project. In this project, I used {skillsStr} to design and build the core architecture, data pipelines, and service interfaces.";
-                }
-                else if (technicalTurn == 2)
-                {
-                    candidateAnswer = $"A key architectural decision in {primaryProj} was structuring the service boundaries and database schemas to ensure low latency and high availability under load.";
-                }
-                else if (technicalTurn == 3)
-                {
-                    candidateAnswer = $"A major engineering challenge in {primaryProj} was handling edge cases and external integration failures. I implemented asynchronous task handling, retry backoffs, and structured logging to maintain high system reliability.";
-                }
-                else
-                {
-                    candidateAnswer = $"Through {primaryProj}, I learned the importance of modular system design, comprehensive unit testing, and graceful failure recovery in production systems.";
-                }
-            }
-            else if (orchestrator.CurrentStage == HRInterviewStage.HiringManager)
-            {
-                hiringMgrTurn++;
-                if (hiringMgrTurn == 1)
-                {
-                    candidateAnswer = $"When driving {primaryProj}, I focused on end-to-end ownership, organized daily standups, coordinated code reviews on GitHub, and resolved blockers to keep our delivery timeline on track.";
-                }
-                else if (hiringMgrTurn == 2)
-                {
-                    candidateAnswer = "When requirements change unexpectedly, I first clarify the core priorities with stakeholders, assess the technical trade-offs, and communicate transparently with the team.";
-                }
-                else
-                {
-                    candidateAnswer = "My long-term ambition is to grow as an engineering leader who designs resilient technical systems while mentoring team members and maintaining high engineering excellence.";
+                    case InterviewSection.Welcome_Introduction:
+                        candidateAnswer = $"Thank you for having me today. My name is {candGreeting}. I completed my degree in {eduStr}. My core technical skills include {skillsStr}, and I've built projects including {primaryProj} and {secondaryProj}.";
+                        break;
+
+                    case InterviewSection.Background_Education_HR:
+                        candidateAnswer = "During my academic and technical training, I focused on building scalable backend services, agile team collaboration with Git, and continuous integration, which developed my passion for solving real-world engineering challenges.";
+                        break;
+
+                    case InterviewSection.Resume_Technical_Skills:
+                        if (turnCount % 2 == 1)
+                        {
+                            candidateAnswer = $"In {primaryProj}, I designed the core system architecture using {skillsStr}. I structured clean service boundaries, established database schemas, and exposed RESTful APIs to maintain modularity and high performance.";
+                        }
+                        else
+                        {
+                            candidateAnswer = $"For data persistence and communication in {primaryProj}, I implemented indexing, connection pooling, and error retries to ensure reliable throughput under concurrent workloads.";
+                        }
+                        break;
+
+                    case InterviewSection.Projects_Problem_Solving:
+                        if (turnCount % 2 == 1)
+                        {
+                            candidateAnswer = $"One of the most complex technical challenges in {primaryProj} was diagnosing unexpected latency during peak request volumes. I profiled database queries, identified unindexed lookups, and added an in-memory caching layer that reduced response latency by 60%.";
+                        }
+                        else
+                        {
+                            candidateAnswer = $"My primary personal contribution to {primaryProj} was architecting the end-to-end data pipeline, writing comprehensive automated integration tests, and setting up Docker containerization for reliable deployments.";
+                        }
+                        break;
+
+                    case InterviewSection.Behavioural_Situational:
+                    default:
+                        if (turnCount % 2 == 1)
+                        {
+                            candidateAnswer = "In our team project, when priorities shifted close to a deadline, I organized a quick sync with team members to re-scope non-critical features, reassigned tasks based on individual strengths, and ensured our core deliverables met high quality standards.";
+                        }
+                        else
+                        {
+                            candidateAnswer = "When a teammate and I had differing opinions on technical architecture, I scheduled a design review, documented the trade-offs of both approaches with benchmark data, and we aligned collaboratively on the best solution for the product.";
+                        }
+                        break;
                 }
             }
 
@@ -279,10 +257,8 @@ namespace PrepVR.Interview
                 Debug.Log($"[AutomatedTester] Candidate response scheduled in {autoResponseTimeoutSeconds}s: \"{answer}\"");
                 yield return new WaitForSeconds(autoResponseTimeoutSeconds);
 
-                // Ensure candidate didn't speak verbally in the meantime
                 if (isResponding) yield break;
 
-                // Ensure interviewer has not started another turn
                 var orchestrator = InterviewOrchestrator.Instance;
                 if (orchestrator != null && orchestrator.IsInterviewerSpeakingTurn)
                 {

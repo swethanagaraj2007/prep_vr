@@ -54,3 +54,18 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 Backend/.env
+
+# Unity auto-recovery and plastic SCM
+Assets/_Recovery/
+Assets/_Recovery.meta
+.plastic/
+
+# Temporary diagnostic logs
+*.trigger
+blendshape_audit_output.txt
+model_audit.log
+audit_binding.log
+fix_lipsync.log
+fix_lipsync_run.log
+fix_scene_binding.log
+verify_audit.log

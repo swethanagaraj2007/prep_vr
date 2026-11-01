@@ -7,7 +7,7 @@ namespace PrepVR.Model
     public class CompetencyEvaluation
     {
         public string categoryName;
-        public string rating; // "Exemplary", "Proficient", "Developing", "Needs Focus"
+        public string rating; // "Exemplary", "Proficient", "Developing", "Needs Focus", "Insufficient Evidence"
         public string observation;
         public string recommendation;
 
@@ -23,12 +23,71 @@ namespace PrepVR.Model
     }
 
     [Serializable]
+    public class QuestionFeedback
+    {
+        public int questionIndex;
+        public string stageRole = "";
+        public string question = "";
+        public string candidateAnswer = "";
+        public string whatWentWell = "";
+        public string whatCouldBeImproved = "";
+        public string relevanceSpecificity = "";
+        public string suggestedStrongerStructure = "";
+    }
+
+    [Serializable]
+    public class SpeechAnalysisMetrics
+    {
+        public int totalWordsSpoken = 0;
+        public float speakingPaceWpm = 0f;
+        public string paceAssessment = "Not Assessed";
+        public int fillerWordCount = 0;
+        public List<string> fillerWordsDetected = new List<string>();
+        public string pauseAssessment = "Standard conversational pauses";
+        public string clarityOrganization = "Clear conversational flow";
+        public string verbalConfidenceIndicators = "Verbal delivery was audible and sustained across panel questions.";
+        public string sensorLimitationsDisclaimer = "Hardware Limitation Note: Acoustic pitch, vocal emotion modulation, and corneal eye-tracking are not captured by current hardware sensors. Gaze direction reflects VR headset / camera forward orientation. Visual criteria are strictly limited to observable orientation.";
+    }
+
+    [Serializable]
+    public class OverallRubricData
+    {
+        public int overallScore = 0; // 0 - 100
+        public string scoringScale = "0-100 (Exemplary: 85-100, Proficient: 70-84, Developing: 50-69, Needs Focus: <50)";
+        public int communicationScore = 0;
+        public int relevanceScore = 0;
+        public int structureClarityScore = 0;
+        public int specificityScore = 0;
+        public int technicalCorrectnessScore = 0;
+        public int behaviouralQualityScore = 0;
+        public int concisenessScore = 0;
+        public string justification = "";
+    }
+
+    [Serializable]
+    public class ResumeAlignmentData
+    {
+        public List<string> demonstratedSkills = new List<string>();
+        public List<string> undemonstratedSkills = new List<string>();
+        public string alignmentSummary = "";
+    }
+
+    [Serializable]
+    public class ActionPlanItem
+    {
+        public int priority;
+        public string title = "";
+        public string recommendation = "";
+        public string practiceQuestion = "";
+    }
+
+    [Serializable]
     public class FeedbackData
     {
         // High-level session metadata
         public string candidateName = "Candidate";
         public string candidateEducation = "Engineering Student";
-        public string interviewType = "Behavioural & Resume Placement Interview";
+        public string interviewType = "Placement Practice — Resume & Behavioural Interview";
         public string interviewDate = "";
         public string interviewDurationFormatted = "10:00";
         public float interviewDurationSeconds = 600f;
@@ -37,7 +96,22 @@ namespace PrepVR.Model
         public string overallSummary = "";
         public string overallReadinessLevel = "Placement Ready - Proficient";
 
-        // 13 Required Placement Competency Evaluations
+        // Section A: Overall Performance & Scoring Rubric
+        public OverallRubricData rubric = new OverallRubricData();
+
+        // Section B: Speech-Based Analysis
+        public SpeechAnalysisMetrics speechMetrics = new SpeechAnalysisMetrics();
+
+        // Section C: Question-by-Question Feedback
+        public List<QuestionFeedback> questionFeedbackList = new List<QuestionFeedback>();
+
+        // Section D: Resume Alignment
+        public ResumeAlignmentData resumeAlignmentReport = new ResumeAlignmentData();
+
+        // Section E: Action Plan
+        public List<ActionPlanItem> prioritizedActionPlan = new List<ActionPlanItem>();
+
+        // 10 Core Placement Competency Evaluations (Preserved for compatibility)
         public CompetencyEvaluation resumeAlignment = new CompetencyEvaluation();
         public CompetencyEvaluation projectDepth = new CompetencyEvaluation();
         public CompetencyEvaluation problemSolving = new CompetencyEvaluation();
@@ -49,13 +123,9 @@ namespace PrepVR.Model
         public CompetencyEvaluation professionalPresence = new CompetencyEvaluation();
         public CompetencyEvaluation activeListening = new CompetencyEvaluation();
 
-        // 11. Key Placement Strengths
+        // Placement Strengths & Areas for Improvement
         public List<string> strengths = new List<string>();
-
-        // 12. Priority Areas for Growth
         public List<string> areasForImprovement = new List<string>();
-
-        // 13. Actionable Placement Preparation Recommendations
         public List<string> actionableRecommendations = new List<string>();
         public List<string> practicePlan = new List<string>();
 
